@@ -1,4 +1,13 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Strike is a personal email-intelligence dashboard: Gmail ingestion, deterministic filtering, AI triage and summaries, and a Phase 2 WhatsApp delivery channel.
+
+## Foundation
+
+- Supabase is the managed PostgreSQL and auth platform.
+- The database schema is in `src/database/migrations/001_initial_schema.sql`; apply it through the Supabase SQL editor or your migration workflow.
+- Background work uses `pg-boss`, a PostgreSQL-native queue, with the Supabase pooled `DATABASE_URL`.
+- Gmail, AI, and WhatsApp have isolated provider boundaries under `src/modules/`.
+
+Copy `.env.example` to `.env.local` and supply the relevant Supabase, Google, and provider credentials before enabling integrations. Never expose the service-role key to browser code.
 
 ## Getting Started
 
@@ -32,3 +41,5 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+# strike
