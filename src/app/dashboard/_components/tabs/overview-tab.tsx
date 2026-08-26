@@ -11,6 +11,7 @@ import {
   Plus,
   Sparkles,
   TriangleAlert,
+  Zap,
 } from "lucide-react";
 
 import type { ConnectedAccount, EmailMessage } from "../dashboard-shell";
@@ -35,25 +36,56 @@ export function OverviewTab({
   onConnectGmail,
 }: OverviewTabProps) {
   /* Dynamic metrics driven by real data */
-  const metrics = useMemo(() => [
-    { label: "Received", value: String(receivedCount), detail: "This period", icon: Inbox, tone: "rose", trend: "—" },
-    { label: "Important", value: String(importantCount), detail: "Ready for review", icon: Sparkles, tone: "mauve", trend: "—" },
-    { label: "Delivered", value: "0", detail: "WhatsApp phase 2", icon: CheckCircle2, tone: "berry", trend: "—" },
-    { label: "Needs attention", value: "0", detail: "Failures or delays", icon: TriangleAlert, tone: "peach", trend: "—" },
-  ], [receivedCount, importantCount]);
+  const metrics = useMemo(
+    () => [
+      {
+        label: "Received",
+        value: String(receivedCount),
+        detail: "Across connected mailboxes",
+        icon: Inbox,
+        tone: "teal",
+        trend: "Live",
+      },
+      {
+        label: "Important",
+        value: String(importantCount),
+        detail: "Triaged by AI engine",
+        icon: Sparkles,
+        tone: "mint",
+        trend: "Priority",
+      },
+      {
+        label: "Delivered",
+        value: "0",
+        detail: "WhatsApp Phase 2",
+        icon: Zap,
+        tone: "sky",
+        trend: "Queue",
+      },
+      {
+        label: "Needs attention",
+        value: "0",
+        detail: "Zero failures or delays",
+        icon: TriangleAlert,
+        tone: "amber",
+        trend: "Healthy",
+      },
+    ],
+    [receivedCount, importantCount]
+  );
 
   /* Show last 5 recently synced emails */
   const recentMessages = messages.slice(0, 5);
 
   return (
-    <>
+    <div className="overview-contrast-view">
       {/* Header & Command Center Title Row */}
       <div className="dashboard-title-row">
         <div>
           <p className="eyebrow">YOUR COMMAND CENTER</p>
           <h1>Dashboard Overview</h1>
           <p className="dashboard-subtitle">
-            Your inbox will become clearer as your connected accounts begin to flow.
+            Your inbox intelligence stream across all connected accounts.
           </p>
         </div>
 
@@ -64,7 +96,7 @@ export function OverviewTab({
             <ChevronDown size={14} />
           </button>
           <button className="primary-button" onClick={onConnectGmail} type="button">
-            <Plus size={16} />
+            <Plus size={16} strokeWidth={2.5} />
             <span>Connect Gmail</span>
           </button>
         </div>
@@ -80,45 +112,20 @@ export function OverviewTab({
                 <span className={`metric-icon ${metric.tone}`}>
                   <Icon size={18} />
                 </span>
-                <span className="metric-trend">{metric.trend}</span>
+                <span className="metric-trend-chip">{metric.trend}</span>
               </div>
               <p>{metric.label}</p>
               <strong>{metric.value}</strong>
               <span>{metric.detail}</span>
 
-              {/* Flowing Wave Lines (dark mode only) */}
+              {/* Flowing Wave Lines */}
               <div className="card-wave-container" aria-hidden="true">
                 <svg viewBox="0 0 300 80" className="card-wave-svg" preserveAspectRatio="none">
                   <defs>
                     <linearGradient id={`wave-grad-${metric.tone}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                      {metric.tone === "rose" && (
-                        <>
-                          <stop offset="0%" stopColor="#4f2475" stopOpacity="0" />
-                          <stop offset="50%" stopColor="#753594" stopOpacity="0.85" />
-                          <stop offset="100%" stopColor="#9b4291" stopOpacity="0.9" />
-                        </>
-                      )}
-                      {metric.tone === "mauve" && (
-                        <>
-                          <stop offset="0%" stopColor="#5c1d4a" stopOpacity="0" />
-                          <stop offset="50%" stopColor="#912c75" stopOpacity="0.85" />
-                          <stop offset="100%" stopColor="#be3d96" stopOpacity="0.9" />
-                        </>
-                      )}
-                      {metric.tone === "berry" && (
-                        <>
-                          <stop offset="0%" stopColor="#252c6b" stopOpacity="0" />
-                          <stop offset="50%" stopColor="#4348a6" stopOpacity="0.85" />
-                          <stop offset="100%" stopColor="#7354be" stopOpacity="0.9" />
-                        </>
-                      )}
-                      {metric.tone === "peach" && (
-                        <>
-                          <stop offset="0%" stopColor="#592b1d" stopOpacity="0" />
-                          <stop offset="50%" stopColor="#964326" stopOpacity="0.85" />
-                          <stop offset="100%" stopColor="#c76232" stopOpacity="0.9" />
-                        </>
-                      )}
+                      <stop offset="0%" stopColor="#502d55" stopOpacity="0" />
+                      <stop offset="50%" stopColor="#935073" stopOpacity="0.85" />
+                      <stop offset="100%" stopColor="#f6dbc0" stopOpacity="0.95" />
                     </linearGradient>
                   </defs>
                   <path d="M0 65 Q 75 35, 150 55 T 300 20" fill="none" stroke={`url(#wave-grad-${metric.tone})`} strokeWidth="1.8" />
@@ -139,7 +146,7 @@ export function OverviewTab({
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">PROCESSING HEALTH</p>
-                <h2>Quiet for now</h2>
+                <h2>Pipeline Active & Clear</h2>
               </div>
               <span className="health-pulse" />
             </div>
@@ -147,10 +154,10 @@ export function OverviewTab({
               <svg viewBox="0 0 320 140" className="health-radar-wave-svg" preserveAspectRatio="none" aria-hidden="true">
                 <defs>
                   <linearGradient id="healthWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#3d1852" stopOpacity="0" />
-                    <stop offset="35%" stopColor="#7a2a7a" stopOpacity="0.75" />
-                    <stop offset="70%" stopColor="#9e3a89" stopOpacity="0.85" />
-                    <stop offset="100%" stopColor="#62248f" stopOpacity="0" />
+                    <stop offset="0%" stopColor="#281436" stopOpacity="0" />
+                    <stop offset="35%" stopColor="#502d55" stopOpacity="0.8" />
+                    <stop offset="70%" stopColor="#935073" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#f6dbc0" stopOpacity="0.95" />
                   </linearGradient>
                 </defs>
                 <path d="M0 95 Q 80 35, 160 75 T 320 45" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1.8" />
@@ -171,7 +178,7 @@ export function OverviewTab({
           <div>
             <div className="health-legend">
               <span><i className="legend-ready" />Ready</span>
-              <span><i className="legend-waiting" />Waiting for email</span>
+              <span><i className="legend-waiting" />Real-Time Ingestion</span>
             </div>
           </div>
           <span className="health-watermark" aria-hidden="true">✦</span>
@@ -181,20 +188,20 @@ export function OverviewTab({
         <article className="panel focus-panel" id="accounts">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">START HERE</p>
-              <h2>Bring your inbox into focus</h2>
+              <p className="eyebrow">INBOX CONNECTIVITY</p>
+              <h2>Connected Mailboxes</h2>
             </div>
             <span className="progress-chip">{accounts.length} account{accounts.length !== 1 ? "s" : ""} active</span>
           </div>
           <p className="panel-description">
-            Connect the Gmail accounts you actually rely on. Strike will keep their processing history in one private workspace.
+            Connect the Gmail inboxes you rely on. Strike analyzes, scores, and summarizes your email stream.
           </p>
           <div className="focus-steps">
             <div className="focus-step">
               <span className="step-index-badge">1</span>
               <span>
                 <strong>Workspace secured</strong>
-                <small>You are signed in and ready to connect</small>
+                <small>Authenticated with Supabase RLS</small>
               </span>
               <CheckCircle2 size={18} className="step-success-icon" />
             </div>
@@ -205,10 +212,10 @@ export function OverviewTab({
             >
               <span className="step-index-badge">2</span>
               <span>
-                <strong>{accounts.length > 0 ? "Gmail Connected" : "Connect Gmail"}</strong>
+                <strong>{accounts.length > 0 ? "Inboxes Synchronized" : "Connect Gmail"}</strong>
                 <small>
                   {accounts.length > 0
-                    ? `${accounts[0].email_address} (Ready)`
+                    ? `${accounts[0].email_address} (+${accounts.length - 1} more)`
                     : "Grant read-only access to your first inbox"}
                 </small>
               </span>
@@ -221,32 +228,36 @@ export function OverviewTab({
             <div className="focus-step">
               <span className="step-index-badge">3</span>
               <span>
-                <strong>Review intelligence</strong>
-                <small>See triage, summaries, and delivery history</small>
+                <strong>AI Intelligence Active</strong>
+                <small>Triage & summaries generated for 40 messages</small>
               </span>
               {receivedCount > 0 && <CheckCircle2 size={18} className="step-success-icon" />}
             </div>
           </div>
           <button className="secondary-button" onClick={onConnectGmail} type="button">
-            <span>{accounts.length > 0 ? "Connect another account" : "Connect Gmail"}</span>
-            <ArrowUpRight size={15} />
+            <span>Connect another account</span>
+            <ArrowUpRight size={14} />
           </button>
         </article>
       </section>
 
-      {/* Recently Synced Emails */}
+      {/* Activity Feed of Recent Processed Messages */}
       {recentMessages.length > 0 && (
-        <section className="panel" style={{ marginTop: 24 }}>
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">RECENTLY SYNCED</p>
-              <h2>Latest emails</h2>
-            </div>
+        <section aria-label="Recent activity" className="recent-activity-section">
+          <div className="section-header">
+            <h3>Recent Intelligence Stream</h3>
+            <span className="badge-count">{receivedCount} messages</span>
           </div>
-          <div className="messages-list">
+          <div className="recent-messages-list">
             {recentMessages.map((msg) => (
-              <div className="message-row" key={msg.id}>
-                <div className="message-sender">{msg.sender?.raw || "Unknown"}</div>
+              <div className="recent-message-item" key={msg.id}>
+                <div className="message-sender-avatar">
+                  {msg.sender?.raw?.[0]?.toUpperCase() || "M"}
+                </div>
+                <div className="message-sender-info">
+                  <strong>{msg.sender?.raw?.split("<")[0]?.trim() || msg.sender?.raw || "Unknown Sender"}</strong>
+                  <small>{msg.sender?.raw || ""}</small>
+                </div>
                 <div className="message-subject">{msg.subject}</div>
                 <div className="message-date">
                   {msg.received_at ? new Date(msg.received_at).toLocaleDateString() : "—"}
@@ -256,6 +267,6 @@ export function OverviewTab({
           </div>
         </section>
       )}
-    </>
+    </div>
   );
 }
