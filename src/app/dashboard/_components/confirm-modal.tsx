@@ -97,20 +97,53 @@ export function ConfirmModal({
         </p>
 
         {/* Action Buttons */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "12px",
+            marginTop: "8px",
+          }}
+        >
+          {/* Cancel button */}
           <button
-            className="period-button"
+            className="secondary-button"
             disabled={isLoading}
             onClick={onClose}
+            style={{
+              padding: "8px 16px",
+              fontSize: "0.85rem",
+              borderRadius: "8px",
+              fontWeight: 500,
+              cursor: isLoading ? "not-allowed" : "pointer",
+              transition: "all 0.15s ease",
+            }}
             type="button"
           >
             {cancelLabel}
           </button>
+
+          {/* Action / Destructive button */}
           <button
             className={isDestructive ? "secondary-button danger-button" : "primary-button"}
             disabled={isLoading}
             onClick={onConfirm}
-            style={{ padding: "8px 16px" }}
+            style={{
+              padding: "8px 18px",
+              fontSize: "0.85rem",
+              borderRadius: "8px",
+              fontWeight: 600,
+              cursor: isLoading ? "not-allowed" : "pointer",
+              transition: "all 0.15s ease",
+              ...(isDestructive
+                ? {
+                    backgroundColor: "rgba(180, 50, 50, 0.08)",
+                    borderColor: "rgba(180, 50, 50, 0.3)",
+                    color: "#c62828",
+                  }
+                : {}),
+            }}
             type="button"
           >
             {isLoading ? "Processing…" : confirmLabel}

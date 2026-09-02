@@ -260,7 +260,12 @@ export function OverviewTab({
                 </div>
                 <div className="message-subject">{msg.subject}</div>
                 <div className="message-date">
-                  {msg.received_at ? new Date(msg.received_at).toLocaleDateString() : "—"}
+                  {msg.received_at
+                    ? new Date(msg.received_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : "—"}
                 </div>
               </div>
             ))}

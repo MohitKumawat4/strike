@@ -219,22 +219,76 @@ export async function executeSummaryStage(
 }
 
 /**
- * 5. Delivery Stage Handler (WhatsApp & Notification Dispatch Foundation)
- * Prepares the message for external delivery in Phase 9.
+ * 5. Delivery Stage Handler (WhatsApp & Notification Dispatch)
+ * Dispatches automated AI summaries to the user's WhatsApp destination.
  */
 export async function executeDeliveryStage(
   supabase: SupabaseClient,
   message: EmailMessageRecord
 ): Promise<StageResult> {
-  // Mark delivery pending / ready for WhatsApp adapter
+  // 1. Fetch user's settings and WhatsApp destination
+  const { data: userSettings } = await supabase
+    .from("user_settings")
+    .select("whatsapp_destination, importance_threshold, notification_preferences")
+    .eq("user_id", message.user_id)
+    .maybeSingle();
+
+  // 2. Fetch the summary and triage results
+  const { data: summaryRecord } = await supabase
+    .from("summaries")
+    .select("summary_text, extracted_items")
+    .eq("message_id", message.id)
+    .maybeSingle();
+
+  const { data: triageRecord } = await supabase
+    .from("ai_results")
+    .select("category, importance")
+    .eq("message_id", message.id)
+    .maybeSingle();
+
+  const destinationPhone = userSettings?.whatsapp_destination;
+
+  // 3. Dispatch WhatsApp alert if destination is configured
+  if (destinationPhone && summaryRecord?.summary_text) {
+    try {
+      const { sendStrikeEmailAlert } = await import("@/modules/whatsapp");
+      await sendStrikeEmailAlert({
+        recipientPhone: destinationPhone,
+        sender: message.sender?.raw,
+        subject: message.subject,
+        summaryText: summaryRecord.summary_text,
+        category: triageRecord?.category,
+        importance: triageRecord?.importance,
+        actionItems: (summaryRecord.extracted_items as Record<string, unknown>)?.action_items as Array<{ action: string; deadline?: string; assignee?: string }> || [],
+        emailMessageId: message.id,
+        userId: message.user_id,
+      });
+
+      await supabase
+        .from("email_messages")
+        .update({ processing_status: "DELIVERED" })
+        .eq("id", message.id);
+
+      return {
+        success: true,
+        nextStage: null,
+        messageStatus: "DELIVERED",
+      };
+    } catch (err: unknown) {
+      console.error("WhatsApp delivery error in pipeline:", err);
+    }
+  }
+
+  // If WhatsApp was skipped or not configured, finalize message status as PROCESSED
   await supabase
     .from("email_messages")
-    .update({ processing_status: "DELIVERY_PENDING" })
+    .update({ processing_status: "PROCESSED" })
     .eq("id", message.id);
 
   return {
     success: true,
     nextStage: null,
-    messageStatus: "DELIVERY_PENDING",
+    messageStatus: "PROCESSED",
   };
 }
+

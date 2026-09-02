@@ -69,6 +69,11 @@ export function MessageDetailDrawer({
         className="drawer-panel"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Drag Handle */}
+        <div className="md:hidden w-full flex justify-center pt-2 pb-1">
+          <div className="w-10 h-1 rounded-full bg-[var(--line)]" />
+        </div>
+
         {/* Drawer Header */}
         <div className="drawer-header">
           <div className="drawer-header-left">

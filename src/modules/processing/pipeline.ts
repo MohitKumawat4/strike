@@ -259,36 +259,38 @@ export async function logSystemEvent(
 }
 
 /**
- * Runs a batch of pending jobs.
+ * Runs a batch of pending jobs, draining successive pipeline stages (up to maxPasses).
  */
 export async function runProcessingBatch(
   supabase: SupabaseClient,
-  maxBatchSize = 10
+  maxBatchSize = 10,
+  maxPasses = 5
 ): Promise<{ processed: number; succeeded: number; failed: number }> {
-  const claimedJobs = await claimNextJobs(supabase, maxBatchSize);
+  let totalProcessed = 0;
+  let totalSucceeded = 0;
+  let totalFailed = 0;
 
-  if (claimedJobs.length === 0) {
-    return { processed: 0, succeeded: 0, failed: 0 };
-  }
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const claimedJobs = await claimNextJobs(supabase, maxBatchSize);
+    if (claimedJobs.length === 0) break;
 
-  const results = await Promise.allSettled(
-    claimedJobs.map((job) => processSingleJob(supabase, job))
-  );
+    const results = await Promise.allSettled(
+      claimedJobs.map((job) => processSingleJob(supabase, job))
+    );
 
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const result of results) {
-    if (result.status === "fulfilled" && result.value.success) {
-      succeeded++;
-    } else {
-      failed++;
+    for (const result of results) {
+      totalProcessed++;
+      if (result.status === "fulfilled" && result.value.success) {
+        totalSucceeded++;
+      } else {
+        totalFailed++;
+      }
     }
   }
 
   return {
-    processed: claimedJobs.length,
-    succeeded,
-    failed,
+    processed: totalProcessed,
+    succeeded: totalSucceeded,
+    failed: totalFailed,
   };
 }

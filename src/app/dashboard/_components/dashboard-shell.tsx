@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/app/theme-provider";
 import {
   AlertCircle,
   BarChart2,
@@ -11,10 +12,13 @@ import {
   FileText,
   Inbox,
   LayoutDashboard,
+  LogOut,
   Mail,
+  Menu,
   Moon,
   Search,
   Settings2,
+  Shield,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -54,6 +58,7 @@ export type EmailMessage = {
   body_text?: string;
   body_html?: string;
   sender?: { raw?: string };
+  recipients?: Array<{ raw?: string }>;
   received_at: string | null;
   processing_status?: string;
   ai_category?: string;
@@ -86,6 +91,7 @@ export type UserSettings = {
   raw_body_retention_days?: number;
   notify_on_important?: boolean;
   notify_on_failure?: boolean;
+  whatsapp_destination?: string | null;
 };
 
 /* Tab key type for the sidebar navigation */
@@ -99,6 +105,14 @@ const NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boole
   { key: "processing", label: "Processing", icon: ShieldCheck },
   { key: "analytics", label: "Analytics", icon: BarChart2 },
   { key: "templates", label: "Templates", icon: FileText },
+  { key: "settings", label: "Settings", icon: Settings2 },
+];
+
+/* Quick items for mobile bottom bar */
+const MOBILE_BOTTOM_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boolean }[] = [
+  { key: "overview", label: "Overview", icon: LayoutDashboard },
+  { key: "messages", label: "Messages", icon: Inbox, count: true },
+  { key: "accounts", label: "Accounts", icon: Mail },
   { key: "settings", label: "Settings", icon: Settings2 },
 ];
 
@@ -141,46 +155,50 @@ export function DashboardShell({
   const [period, setPeriod] = useState("Last 7 days");
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [banner, setBanner] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // Read URL status messages from OAuth redirect
   useEffect(() => {
     const errorParam = searchParams.get("error");
-    const connectedParam = searchParams.get("connected");
-    const accountParam = searchParams.get("account");
+    const successParam = searchParams.get("success");
 
-    if (errorParam) {
+    if (errorParam === "google_oauth_denied") {
       setBanner({
         type: "error",
-        text: errorParam.includes("scopes")
-          ? "Google permission required: Please check the checkbox allowing Strike to view your emails when connecting."
-          : errorParam,
+        text: "Google sign-in was canceled or access was denied. Please retry if you wish to connect your account.",
       });
-      // Clean query param without page reload
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (connectedParam === "true") {
+    } else if (errorParam === "google_auth_failed") {
+      setBanner({
+        type: "error",
+        text: "Authentication with Google failed. Please check your credentials and try again.",
+      });
+    } else if (successParam === "account_connected") {
       setBanner({
         type: "success",
-        text: accountParam ? `✓ Successfully connected ${accountParam}!` : "✓ Mailbox connected successfully!",
+        text: "Gmail account successfully connected and monitoring enabled.",
       });
-      window.history.replaceState({}, "", window.location.pathname);
     }
   }, [searchParams]);
 
-  /* Navigate to Google OAuth flow */
+  // Connect Gmail Action Trigger
   function handleConnectGmail() {
-    window.location.href = "/api/auth/google";
+    window.location.href = "/api/auth/google/login";
   }
 
-  /* Toggle period filter */
+  // Time period filter handler
   function handlePeriodChange() {
-    setPeriod(period === "Last 7 days" ? "This month" : "Last 7 days");
+    setPeriod((prev) => (prev === "Last 7 days" ? "This month" : "Last 7 days"));
   }
 
   /* Derive user initials for avatar display */
-  const initials = useMemo(
-    () => email.slice(0, 2).toUpperCase() || "MO",
-    [email],
-  );
+  const initials = useMemo(() => {
+    if (!email) return "ST";
+    const parts = email.split("@")[0].split(/[._-]/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return email.slice(0, 2).toUpperCase();
+  }, [email]);
 
   /* Sign out handler */
   async function signOut() {
@@ -189,6 +207,11 @@ export function DashboardShell({
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();
+  }
+
+  function handleTabSelect(key: TabKey) {
+    setActiveTab(key);
+    setIsMobileNavOpen(false);
   }
 
   /* Render the active tab content */
@@ -237,7 +260,9 @@ export function DashboardShell({
 
   return (
     <div className="dashboard-app">
-      {/* Left Navigation Sidebar */}
+      {/* =========================================================================
+          DESKTOP SIDEBAR
+          ========================================================================= */}
       <aside className="dashboard-sidebar">
         <div className="brand-lockup">
           <span className="brand-mark"><Sparkles size={15} /></span>
@@ -251,7 +276,7 @@ export function DashboardShell({
               <button
                 className={`nav-item ${activeTab === item.key ? "active" : ""}`}
                 key={item.key}
-                onClick={() => setActiveTab(item.key)}
+                onClick={() => handleTabSelect(item.key)}
                 type="button"
               >
                 <Icon size={18} />
@@ -265,8 +290,60 @@ export function DashboardShell({
           })}
         </nav>
 
-        {/* Bottom User Indicator */}
+        {/* Bottom User Indicator & Legal Links */}
         <div className="sidebar-footer">
+          <div
+            className="sidebar-legal-links"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              width: "100%",
+              marginBottom: "12px",
+              borderTop: "1px solid var(--line)",
+              paddingTop: "12px",
+            }}
+          >
+            <Link
+              href="/privacy"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "6px 8px",
+                fontSize: "0.76rem",
+                color: "var(--muted)",
+                textDecoration: "none",
+                borderRadius: "6px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Shield size={13} style={{ flexShrink: 0 }} />
+              <span>Privacy Policy</span>
+            </Link>
+            <Link
+              href="/terms"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "6px 8px",
+                fontSize: "0.76rem",
+                color: "var(--muted)",
+                textDecoration: "none",
+                borderRadius: "6px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <FileText size={13} style={{ flexShrink: 0 }} />
+              <span>Terms of Service</span>
+            </Link>
+          </div>
+
           <button
             aria-label={`Signed in as ${email}. Click to sign out.`}
             className="sidebar-user-pill"
@@ -280,13 +357,112 @@ export function DashboardShell({
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* =========================================================================
+          MOBILE SLIDE-OVER NAVIGATION DRAWER
+          ========================================================================= */}
+      {isMobileNavOpen && (
+        <div className="mobile-nav-overlay" onClick={() => setIsMobileNavOpen(false)}>
+          <div className="mobile-nav-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
+              <div className="flex items-center gap-2 font-extrabold text-lg text-[var(--ink)]">
+                <div className="w-7 h-7 rounded-lg bg-[var(--brand-plum)] text-white flex items-center justify-center text-xs">
+                  <Sparkles size={14} />
+                </div>
+                <span>strike</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen(false)}
+                className="w-8 h-8 rounded-lg border border-[var(--line)] flex items-center justify-center text-[var(--muted)]"
+                aria-label="Close drawer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <nav className="space-y-1 flex-1">
+              {NAV_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => handleTabSelect(item.key)}
+                    className={`w-full flex items-center justify-between p-3 rounded-xl text-sm font-bold transition-colors ${
+                      isActive
+                        ? "bg-[var(--surface-pill)] text-[var(--brand-plum)]"
+                        : "text-[var(--muted)] hover:bg-[var(--surface-muted)]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon size={18} />
+                      <span>{item.label}</span>
+                    </div>
+                    {item.count && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink)]">
+                        {receivedCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="pt-4 mt-4 border-t border-[var(--line)] space-y-3">
+              <div className="flex flex-col gap-1 text-xs text-[var(--muted)] font-semibold">
+                <Link href="/privacy" className="py-1 hover:text-[var(--ink)]">
+                  Privacy Policy
+                </Link>
+                <Link href="/terms" className="py-1 hover:text-[var(--ink)]">
+                  Terms of Service
+                </Link>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[var(--line)]">
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-full bg-[var(--surface-pill)] text-[var(--brand-plum)] flex items-center justify-center font-bold text-xs">
+                    {initials}
+                  </span>
+                  <div className="text-xs font-bold text-[var(--ink)] truncate max-w-[140px]">
+                    {email}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={signOut}
+                  disabled={isSigningOut}
+                  className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MAIN CONTENT AREA & TOP HEADER
+          ========================================================================= */}
       <main className="dashboard-main">
         {/* Top Navigation Bar */}
         <header className="dashboard-header">
-          <div className="mobile-brand">
-            <span className="brand-mark"><Sparkles size={15} /></span>
-            <span>strike</span>
+          {/* Mobile Hamburger Button + Brand */}
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsMobileNavOpen(true)}
+              className="md:hidden w-8 h-8 rounded-lg border border-[var(--line)] bg-[var(--surface)] flex items-center justify-center text-[var(--ink)]"
+              aria-label="Open navigation drawer"
+            >
+              <Menu size={17} />
+            </button>
+            <div className="mobile-brand">
+              <span className="brand-mark"><Sparkles size={14} /></span>
+              <span>strike</span>
+            </div>
           </div>
 
           <label className="search-box">
@@ -353,6 +529,30 @@ export function DashboardShell({
           {renderTabContent()}
         </section>
       </main>
+
+      {/* =========================================================================
+          MOBILE QUICK BOTTOM NAVIGATION BAR
+          ========================================================================= */}
+      <nav aria-label="Mobile navigation" className="mobile-bottom-nav md:hidden">
+        {MOBILE_BOTTOM_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => handleTabSelect(item.key)}
+              className={`mobile-bottom-nav-item ${isActive ? "active" : ""}`}
+            >
+              <Icon size={18} />
+              <span>{item.label}</span>
+              {item.count && receivedCount > 0 && (
+                <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-[var(--brand-plum)]" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

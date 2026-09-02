@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/app/theme-provider";
 import { useRouter } from "next/navigation";
 import {
+  CheckCircle2,
   LogOut,
+  MessageSquare,
   Moon,
+  Send,
   Settings2,
   Shield,
   Sun,
@@ -27,6 +30,9 @@ export function SettingsTab({ email, userSettings }: SettingsTabProps) {
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   /* Form state initialized from persisted settings or defaults */
+  const [whatsappDestination, setWhatsappDestination] = useState(
+    userSettings?.whatsapp_destination ?? ""
+  );
   const [importanceThreshold, setImportanceThreshold] = useState(
     userSettings?.importance_threshold ?? 0.5
   );
@@ -42,6 +48,10 @@ export function SettingsTab({ email, userSettings }: SettingsTabProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  /* Test WhatsApp delivery state */
+  const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
+  const [testResult, setTestResult] = useState<{ success?: boolean; message?: string } | null>(null);
+
   /* Sign out handler */
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -49,6 +59,36 @@ export function SettingsTab({ email, userSettings }: SettingsTabProps) {
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();
+  }
+
+  /* Send Test WhatsApp Notification */
+  async function handleTestWhatsApp() {
+    if (!whatsappDestination.trim()) {
+      setTestResult({ success: false, message: "Please enter your WhatsApp phone number first." });
+      return;
+    }
+
+    setIsTestingWhatsApp(true);
+    setTestResult(null);
+
+    try {
+      const res = await fetch("/api/whatsapp/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destinationPhone: whatsappDestination.trim() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setTestResult({ success: false, message: data.error || "Failed to send test message." });
+      } else {
+        setTestResult({ success: true, message: "Test alert sent to your WhatsApp!" });
+      }
+    } catch (err: unknown) {
+      setTestResult({ success: false, message: err instanceof Error ? err.message : "Network error" });
+    } finally {
+      setIsTestingWhatsApp(false);
+    }
   }
 
   /* Save settings to user_settings table */
@@ -65,6 +105,7 @@ export function SettingsTab({ email, userSettings }: SettingsTabProps) {
       await supabase.from("user_settings").upsert(
         {
           user_id: user.id,
+          whatsapp_destination: whatsappDestination.trim() || null,
           importance_threshold: importanceThreshold,
           raw_body_retention_days: retentionDays,
           notify_on_important: notifyImportant,
@@ -191,6 +232,77 @@ export function SettingsTab({ email, userSettings }: SettingsTabProps) {
             <span>days</span>
           </div>
         </div>
+      </div>
+
+      {/* WhatsApp Delivery Configuration */}
+      <div className="panel settings-section">
+        <div className="settings-section-header">
+          <MessageSquare size={18} />
+          <h2>WhatsApp Instant Delivery</h2>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-label">
+            <strong>Destination Phone Number</strong>
+            <span>Enter your WhatsApp phone number with country code (e.g. +919876543210)</span>
+          </div>
+          <div className="settings-input-group" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", width: "100%", maxWidth: "420px" }}>
+            <input
+              className="text-input"
+              onChange={(e) => setWhatsappDestination(e.target.value)}
+              placeholder="+919876543210"
+              style={{
+                background: "var(--surface-muted)",
+                border: "1px solid var(--line)",
+                color: "var(--ink)",
+                borderRadius: "10px",
+                padding: "8px 12px",
+                fontSize: "14px",
+                flex: "1 1 180px",
+                minWidth: "160px",
+              }}
+              type="tel"
+              value={whatsappDestination}
+            />
+            <button
+              className="secondary-button"
+              disabled={isTestingWhatsApp || !whatsappDestination.trim()}
+              onClick={handleTestWhatsApp}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 16px",
+                fontSize: "13px",
+                borderRadius: "10px",
+                cursor: isTestingWhatsApp || !whatsappDestination.trim() ? "not-allowed" : "pointer",
+              }}
+              type="button"
+            >
+              <Send size={13} />
+              <span>{isTestingWhatsApp ? "Sending…" : "Test Alert"}</span>
+            </button>
+          </div>
+        </div>
+
+        {testResult && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              background: testResult.success ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+              border: testResult.success ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
+              color: testResult.success ? "#22c55e" : "#ef4444",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            {testResult.success && <CheckCircle2 size={15} />}
+            <span>{testResult.message}</span>
+          </div>
+        )}
       </div>
 
       {/* Notifications */}

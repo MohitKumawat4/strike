@@ -64,7 +64,7 @@ export default async function DashboardPage() {
     // 5. User preferences and thresholds
     supabase
       .from("user_settings")
-      .select("importance_threshold, raw_body_retention_days, notify_on_important, notify_on_failure")
+      .select("importance_threshold, raw_body_retention_days, notify_on_important, notify_on_failure, whatsapp_destination")
       .maybeSingle(),
 
     // 6. AI intelligence classification results
