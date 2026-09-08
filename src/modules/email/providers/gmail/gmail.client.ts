@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { getServerEnv } from "@/config/server-env";
-import { GMAIL_READONLY_SCOPE } from "./gmail.constants";
+import { decryptToken } from "@/common/crypto/encryption";
+import { GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE } from "./gmail.constants";
 
 /**
  * Creates a configured Google OAuth2 client.
@@ -17,7 +18,7 @@ export function getGoogleOAuthClient() {
 
 /**
  * Generates the Google OAuth authorization URL requesting offline access
- * and read-only Gmail scopes.
+ * and read/modify Gmail scopes.
  * Uses prompt="consent select_account" to ensure multi-account switching works cleanly.
  */
 export function getGoogleAuthUrl(state: string): string {
@@ -28,6 +29,7 @@ export function getGoogleAuthUrl(state: string): string {
     prompt: "consent select_account",
     scope: [
       GMAIL_READONLY_SCOPE,
+      GMAIL_MODIFY_SCOPE,
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile",
       "openid",
@@ -50,9 +52,12 @@ export async function exchangeCodeAndFetchProfile(code: string) {
 
   oauth2Client.setCredentials(tokens);
 
-  // Check if gmail.readonly scope was granted in the returned tokens
+  // Check if gmail scope was granted in the returned tokens
   const grantedScopeStr = tokens.scope || "";
-  const hasGmailScope = grantedScopeStr.includes("gmail.readonly") || grantedScopeStr.includes("mail.google.com");
+  const hasGmailScope =
+    grantedScopeStr.includes("gmail.readonly") ||
+    grantedScopeStr.includes("gmail.modify") ||
+    grantedScopeStr.includes("mail.google.com");
 
   if (!hasGmailScope) {
     throw new Error(
@@ -93,4 +98,34 @@ export async function exchangeCodeAndFetchProfile(code: string) {
     emailAddress,
     historyId,
   };
+}
+
+/**
+ * Modifies an email message labels directly in Gmail (e.g. Mark Read, Archive, Star).
+ * Uses decrypted refresh token to establish an authorized Gmail API session.
+ */
+export async function modifyGmailMessage(
+  encryptedRefreshToken: string,
+  providerMessageId: string,
+  options: {
+    addLabelIds?: string[];
+    removeLabelIds?: string[];
+  }
+) {
+  const refreshToken = decryptToken(encryptedRefreshToken);
+  const oauth2Client = getGoogleOAuthClient();
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  const res = await gmail.users.messages.modify({
+    userId: "me",
+    id: providerMessageId,
+    requestBody: {
+      addLabelIds: options.addLabelIds || [],
+      removeLabelIds: options.removeLabelIds || [],
+    },
+  });
+
+  return res.data;
 }

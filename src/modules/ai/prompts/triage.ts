@@ -2,12 +2,19 @@ import { generateStructuredAiJson } from "../ai.client";
 
 export const TRIAGE_PROMPT_VERSION = "2026.08.v1";
 
+export type UserCustomPriorityRules = {
+  instructions?: string;
+  vipSenders?: string[];
+  ignoreKeywords?: string[];
+};
+
 export type TriageInput = {
   subject: string;
   sender: string;
   recipient?: string;
   snippet?: string;
   bodyText?: string;
+  userCustomRules?: UserCustomPriorityRules;
 };
 
 export type TriageResult = {
@@ -18,20 +25,41 @@ export type TriageResult = {
 };
 
 /**
- * Builds the AI prompt instructions for classifying and scoring emails.
+ * Builds the AI prompt instructions for classifying and scoring emails,
+ * incorporating user-defined custom priority rules and VIP preferences.
  */
 export function buildTriagePrompt(input: TriageInput): { systemPrompt: string; userPrompt: string } {
+  let customInstructionsSection = "";
+  if (input.userCustomRules) {
+    const { instructions, vipSenders, ignoreKeywords } = input.userCustomRules;
+    const rulesList: string[] = [];
+
+    if (instructions && instructions.trim()) {
+      rulesList.push(`- USER EXPLICIT PRIORITY GUIDANCE: ${instructions.trim()}`);
+    }
+    if (vipSenders && vipSenders.length > 0) {
+      rulesList.push(`- VIP SENDER DOMAINS/ADDRESSES (Always score ≥ 0.85 Important): ${vipSenders.join(", ")}`);
+    }
+    if (ignoreKeywords && ignoreKeywords.length > 0) {
+      rulesList.push(`- USER IGNORE / LOW-PRIORITY PATTERNS (Score < 0.30): ${ignoreKeywords.join(", ")}`);
+    }
+
+    if (rulesList.length > 0) {
+      customInstructionsSection = `\n\nUSER-DEFINED CUSTOM TRIAGE PREFERENCES (STRICT PRIORITY):\n${rulesList.join("\n")}`;
+    }
+  }
+
   const systemPrompt = `You are Strike AI, an elite email triage assistant.
 Your task is to analyze incoming emails and classify them with high precision into one of four categories:
 1. "important" — Time-sensitive, urgent requests, invoices, payments, client contracts, critical system alerts, schedule invites, or communications requiring swift action.
 2. "normal" — General professional correspondence, personal discussions, standard non-urgent replies.
 3. "promotional" — Marketing newsletters, product discounts, coupons, company announcements, promotional digests.
-4. "spam" — Unsolicited bulk marketing, scam attempts, phishing, unwanted junk.
+4. "spam" — Unsolicited bulk marketing, scam attempts, phishing, unwanted junk.${customInstructionsSection}
 
 Output valid JSON matching this schema:
 {
   "category": "important" | "normal" | "promotional" | "spam",
-  "importance": number, // 0.00 to 1.00 (e.g. 0.95 for urgent/time-critical, 0.10 for spam/promo)
+  "importance": number, // 0.00 to 1.00 (e.g. 0.95 for urgent/time-critical/VIP, 0.10 for spam/promo)
   "confidence": number, // 0.00 to 1.00
   "reason": string // 1-2 sentence justification for the classification
 }`;

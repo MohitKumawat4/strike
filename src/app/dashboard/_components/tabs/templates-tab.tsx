@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Code2,
   Zap,
+  MessageSquare,
 } from "lucide-react";
 
 /**
@@ -16,7 +17,7 @@ import {
  * Gives full visibility into the AI prompts and categorization rules used by Strike.
  */
 export function TemplatesTab() {
-  const [activeTemplate, setActiveTemplate] = useState<"triage" | "summary" | "heuristic">("triage");
+  const [activeTemplate, setActiveTemplate] = useState<"triage" | "summary" | "heuristic" | "whatsapp_greetings">("triage");
 
   const templates = {
     triage: {
@@ -74,6 +75,28 @@ Extract:
 - Routes urgent invoices and contracts to immediate high importance
 - Flags promotional newsletters for digest categorization`,
     },
+    whatsapp_greetings: {
+      title: "WhatsApp 24-Hour Re-activation & Morning Briefing",
+      version: "strike_daily_greetings_v1 (Utility)",
+      description: "Meta Utility Template with quick-reply buttons that re-establishes the 24-hour messaging window upon button tap.",
+      outputSchema: `Meta Cloud API Template Spec:
+• Name: strike_daily_greetings_v1
+• Category: UTILITY
+• Language: en_US
+• Quick-Reply Buttons:
+  1. "Ready for Briefing" (Payload: START_DAY)
+  2. "View Inbox" (Payload: VIEW_INBOX)
+• Variables: {{1}} = User Display Name`,
+      promptText: `Header: Strike Daily Intelligence
+
+Body:
+Good morning {{1}}! ☀️ Strike has triaged your inbox and prepared your priority email briefing. Tap below to start your briefing.
+
+Footer: Strike AI • Instant Inbox Intelligence
+
+Buttons:
+👉 [Ready for Briefing]  👉 [View Inbox]`,
+    },
   };
 
   const current = templates[activeTemplate];
@@ -84,15 +107,15 @@ Extract:
       <div className="dashboard-title-row">
         <div>
           <p className="eyebrow">INTELLIGENCE ENGINE</p>
-          <h1>AI Prompt Templates</h1>
+          <h1>AI Prompt & Message Templates</h1>
           <p className="dashboard-subtitle">
-            Inspect the active prompt engines and classification schemas powering Strike.
+            Inspect active AI intelligence prompts and Meta WhatsApp message templates.
           </p>
         </div>
       </div>
 
       {/* Template Selectors */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 24 }}>
         <article
           className={`panel ${activeTemplate === "triage" ? "account-card-expanded" : ""}`}
           onClick={() => setActiveTemplate("triage")}
@@ -147,6 +170,25 @@ Extract:
           </div>
           <p style={{ fontSize: "0.82rem", color: "var(--muted)", margin: 0 }}>
             Zero-latency deterministic rule matching for keywords and noise.
+          </p>
+        </article>
+
+        <article
+          className={`panel ${activeTemplate === "whatsapp_greetings" ? "account-card-expanded" : ""}`}
+          onClick={() => setActiveTemplate("whatsapp_greetings")}
+          style={{ cursor: "pointer", padding: 18 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+            <div className="account-card-icon" style={{ background: "var(--brand-plum)", color: "var(--brand-plum-text)" }}>
+              <MessageSquare size={18} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "0.95rem" }}>WhatsApp Greetings</h3>
+              <small className="muted-text">24h Window Activation</small>
+            </div>
+          </div>
+          <p style={{ fontSize: "0.82rem", color: "var(--muted)", margin: 0 }}>
+            Daily morning brief with quick-reply buttons to unlock 24h streaming.
           </p>
         </article>
       </div>

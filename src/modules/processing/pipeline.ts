@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logLayerError, type ExecutionLayer } from "@/common/logging/layer-logger";
 import {
   executeIngestionStage,
   executePreFilterStage,
@@ -23,6 +24,18 @@ export type ProcessingJobRecord = {
 };
 
 const MAX_ATTEMPTS = 3;
+
+/**
+ * Maps job stage to execution layer taxonomy.
+ */
+function mapStageToLayer(stage: string): ExecutionLayer {
+  if (stage === "pre_filter") return "filtration";
+  if (stage === "summary") return "summarization";
+  if (stage === "triage" || stage === "delivery" || stage === "ingestion") {
+    return stage as ExecutionLayer;
+  }
+  return "system";
+}
 
 /**
  * Claims pending or due retry jobs from the processing_jobs table.
@@ -174,6 +187,7 @@ async function handleJobFailure(
 ) {
   const nextAttempt = (job.attempts || 0) + 1;
   const isFinalFailure = nextAttempt >= MAX_ATTEMPTS;
+  const layer = mapStageToLayer(job.stage);
 
   if (isFinalFailure) {
     // Transition to permanently FAILED (Dead-letter)
@@ -194,17 +208,16 @@ async function handleJobFailure(
       .update({ processing_status: "FAILED" })
       .eq("id", job.message_id);
 
-    // Log diagnostic system event
-    await logSystemEvent(supabase, {
-      event_type: "processing_job_failed",
-      severity: "error",
-      payload: {
-        job_id: job.id,
-        message_id: job.message_id,
-        stage: job.stage,
-        attempts: nextAttempt,
-        error: errorMessage,
-      },
+    // Log structured layer error into error_logs
+    await logLayerError({
+      layer,
+      severity: "critical",
+      errorCode: "STAGE_FATAL_FAILURE",
+      errorMessage: `Job ${job.id} reached max retry limit (${MAX_ATTEMPTS}) on stage ${job.stage}: ${errorMessage}`,
+      messageId: job.message_id,
+      jobId: job.id,
+      technicalDetails: { attempts: nextAttempt, stage: job.stage },
+      supabaseClient: supabase,
     });
   } else {
     // Compute exponential backoff delay: 2^attempt * 15 seconds (max 5 minutes)
@@ -222,19 +235,20 @@ async function handleJobFailure(
       })
       .eq("id", job.id);
 
-    await logSystemEvent(supabase, {
-      event_type: "processing_job_retry_scheduled",
+    // Log warning in error_logs
+    await logLayerError({
+      layer,
       severity: "warning",
-      payload: {
-        job_id: job.id,
-        message_id: job.message_id,
-        stage: job.stage,
-        next_attempt: nextAttempt,
-        next_retry_at: nextRetryAt,
-      },
+      errorCode: "STAGE_RETRY_SCHEDULED",
+      errorMessage: `Stage ${job.stage} failed (Attempt ${nextAttempt}/${MAX_ATTEMPTS}), retrying in ${delaySeconds}s: ${errorMessage}`,
+      messageId: job.message_id,
+      jobId: job.id,
+      technicalDetails: { nextRetryAt, attempts: nextAttempt },
+      supabaseClient: supabase,
     });
   }
 }
+
 
 /**
  * Records an entry in the system_events audit log.
@@ -263,8 +277,8 @@ export async function logSystemEvent(
  */
 export async function runProcessingBatch(
   supabase: SupabaseClient,
-  maxBatchSize = 10,
-  maxPasses = 5
+  maxBatchSize = 50,
+  maxPasses = 10
 ): Promise<{ processed: number; succeeded: number; failed: number }> {
   let totalProcessed = 0;
   let totalSucceeded = 0;

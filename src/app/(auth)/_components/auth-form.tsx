@@ -149,9 +149,9 @@ export function AuthForm({ mode, nextPath, initialError }: AuthFormProps) {
 
   return (
     <section className="auth-card" aria-labelledby="auth-heading">
-      <div className="auth-mark" aria-hidden="true">
+      <Link href="/" className="auth-mark" title="Strike Home" style={{ textDecoration: "none" }}>
         <Sparkles size={19} />
-      </div>
+      </Link>
       <p className="eyebrow">Strike intelligence</p>
       <h1 id="auth-heading">{isLogin ? "Welcome back" : "Create your workspace"}</h1>
       <p className="auth-description">

@@ -75,19 +75,47 @@ export function MessageDetailDrawer({
         </div>
 
         {/* Drawer Header */}
-        <div className="drawer-header">
-          <div className="drawer-header-left">
+        <div className="drawer-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+          <div className="drawer-header-left" style={{ flex: 1, minWidth: 0 }}>
             <span className="drawer-eyebrow">MESSAGE INTELLIGENCE</span>
             <h2>{message.subject || "(No Subject)"}</h2>
           </div>
-          <button
-            aria-label="Close drawer"
-            className="icon-button drawer-close-btn"
-            onClick={onClose}
-            type="button"
-          >
-            <X size={18} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+            <a
+              href={
+                message.provider_message_id
+                  ? `https://mail.google.com/mail/u/0/#all/${message.thread_id || message.provider_message_id}`
+                  : `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(message.subject || "")}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                fontSize: "12px",
+                fontWeight: 600,
+                height: "32px",
+                padding: "0 12px",
+                borderRadius: "8px",
+                textDecoration: "none",
+              }}
+              title="Open full thread in Google Mail"
+            >
+              <Mail size={13} />
+              <span>Open in Gmail</span>
+              <ArrowUpRight size={13} />
+            </a>
+            <button
+              aria-label="Close drawer"
+              className="icon-button drawer-close-btn"
+              onClick={onClose}
+              type="button"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Drawer Scrollable Body */}

@@ -8,13 +8,14 @@ import {
   ChevronDown,
   Clock3,
   Inbox,
+  MessageSquare,
   Plus,
   Sparkles,
   TriangleAlert,
   Zap,
 } from "lucide-react";
 
-import type { ConnectedAccount, EmailMessage } from "../dashboard-shell";
+import type { ConnectedAccount, EmailMessage, UserSettings } from "../dashboard-shell";
 
 type OverviewTabProps = {
   accounts: ConnectedAccount[];
@@ -24,6 +25,8 @@ type OverviewTabProps = {
   period: string;
   onPeriodChange: () => void;
   onConnectGmail: () => void;
+  onNavigateToTab?: (tab: "overview" | "messages" | "accounts" | "processing" | "analytics" | "templates" | "settings") => void;
+  userSettings?: UserSettings | null;
 };
 
 export function OverviewTab({
@@ -34,44 +37,50 @@ export function OverviewTab({
   period,
   onPeriodChange,
   onConnectGmail,
+  onNavigateToTab,
+  userSettings,
 }: OverviewTabProps) {
-  /* Dynamic metrics driven by real data */
+  /* Dynamic metrics driven by real pipeline data */
   const metrics = useMemo(
     () => [
       {
         label: "Received",
         value: String(receivedCount),
+        badge: "Inboxes",
         detail: "Across connected mailboxes",
         icon: Inbox,
-        tone: "teal",
+        tone: "mauve",
         trend: "Live",
       },
       {
-        label: "Important",
+        label: "AI Triaged",
         value: String(importantCount),
+        badge: "Priority",
         detail: "Triaged by AI engine",
         icon: Sparkles,
-        tone: "mint",
+        tone: "rose",
         trend: "Priority",
       },
       {
-        label: "Delivered",
-        value: "0",
-        detail: "WhatsApp Phase 2",
+        label: "WhatsApp Stream",
+        value: userSettings?.whatsapp_destination ? "Active" : "Not Linked",
+        badge: userSettings?.whatsapp_destination ? "Meta API" : "Action",
+        detail: userSettings?.whatsapp_destination ? userSettings.whatsapp_destination : "Connect recipient number",
         icon: Zap,
-        tone: "sky",
-        trend: "Queue",
+        tone: "berry",
+        trend: userSettings?.whatsapp_destination ? "Connected" : "Setup",
       },
       {
-        label: "Needs attention",
+        label: "Needs Attention",
         value: "0",
+        badge: "Clean",
         detail: "Zero failures or delays",
         icon: TriangleAlert,
-        tone: "amber",
+        tone: "peach",
         trend: "Healthy",
       },
     ],
-    [receivedCount, importantCount]
+    [receivedCount, importantCount, userSettings?.whatsapp_destination]
   );
 
   /* Show last 5 recently synced emails */
@@ -102,143 +111,293 @@ export function OverviewTab({
         </div>
       </div>
 
-      {/* Metric Cards Row */}
+      {/* Top Metric Cards Grid - Balanced Typography & Structured Framing */}
       <section aria-label="Email metrics" className="metric-grid">
         {metrics.map((metric) => {
           const Icon = metric.icon;
+          const isTextValue = isNaN(Number(metric.value));
           return (
-            <article className="metric-card" key={metric.label}>
+            <article className={`metric-card metric-card-${metric.tone}`} key={metric.label}>
               <div className="metric-top">
-                <span className={`metric-icon ${metric.tone}`}>
-                  <Icon size={18} />
+                <div className="metric-icon-box">
+                  <span className={`metric-icon ${metric.tone}`}>
+                    <Icon size={17} />
+                  </span>
+                  <span className="metric-card-label">{metric.label}</span>
+                </div>
+                <span className={`metric-trend-chip chip-${metric.tone}`}>
+                  <span className="chip-pulse-dot" />
+                  {metric.trend}
                 </span>
-                <span className="metric-trend-chip">{metric.trend}</span>
               </div>
-              <p>{metric.label}</p>
-              <strong>{metric.value}</strong>
-              <span>{metric.detail}</span>
 
-              {/* Flowing Wave Lines */}
-              <div className="card-wave-container" aria-hidden="true">
-                <svg viewBox="0 0 300 80" className="card-wave-svg" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id={`wave-grad-${metric.tone}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#502d55" stopOpacity="0" />
-                      <stop offset="50%" stopColor="#935073" stopOpacity="0.85" />
-                      <stop offset="100%" stopColor="#f6dbc0" stopOpacity="0.95" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M0 65 Q 75 35, 150 55 T 300 20" fill="none" stroke={`url(#wave-grad-${metric.tone})`} strokeWidth="1.8" />
-                  <path d="M0 72 Q 80 48, 160 62 T 300 30" fill="none" stroke={`url(#wave-grad-${metric.tone})`} strokeWidth="1.2" opacity="0.6" />
-                  <path d="M0 78 Q 85 58, 170 68 T 300 42" fill="none" stroke={`url(#wave-grad-${metric.tone})`} strokeWidth="1" opacity="0.4" />
-                </svg>
+              <div className="metric-value-container">
+                <strong className={`metric-value ${isTextValue ? "metric-value-text" : "metric-value-number"}`}>
+                  {metric.value}
+                </strong>
+                {metric.badge && (
+                  <span className="metric-badge-tag">{metric.badge}</span>
+                )}
               </div>
+
+              <span className="metric-detail-text">{metric.detail}</span>
+
+              {/* Refined subtle bottom accent indicator */}
+              <div className={`metric-bottom-bar bar-${metric.tone}`} aria-hidden="true" />
             </article>
           );
         })}
       </section>
 
-      {/* Two-Column Grid: Health + Start Here */}
+      {/* Two-Column Grid: Processing Health + Inbox Connectivity */}
       <section className="dashboard-grid">
-        {/* Processing Health Radar */}
+        {/* Processing Health & Telemetry Panel */}
         <article className="panel health-panel" id="health">
-          <div>
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">PROCESSING HEALTH</p>
-                <h2>Pipeline Active & Clear</h2>
-              </div>
-              <span className="health-pulse" />
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">PROCESSING HEALTH</p>
+              <h2>Pipeline Active & Clear</h2>
             </div>
-            <div className="health-visual-radar">
-              <svg viewBox="0 0 320 140" className="health-radar-wave-svg" preserveAspectRatio="none" aria-hidden="true">
-                <defs>
-                  <linearGradient id="healthWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#281436" stopOpacity="0" />
-                    <stop offset="35%" stopColor="#502d55" stopOpacity="0.8" />
-                    <stop offset="70%" stopColor="#935073" stopOpacity="0.9" />
-                    <stop offset="100%" stopColor="#f6dbc0" stopOpacity="0.95" />
-                  </linearGradient>
-                </defs>
-                <path d="M0 95 Q 80 35, 160 75 T 320 45" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1.8" />
-                <path d="M0 108 Q 90 48, 170 86 T 320 58" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1.2" opacity="0.6" />
-                <path d="M0 120 Q 100 62, 180 96 T 320 72" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1" opacity="0.35" />
-              </svg>
-              <div className="health-radar-container">
-                <div className="radar-ring radar-ring-outer" />
-                <div className="radar-ring radar-ring-middle" />
-                <div className="radar-ring radar-ring-inner">
-                  <Clock3 size={18} className="gauge-icon" />
-                  <strong>0 min</strong>
-                  <span>avg. latency</span>
-                </div>
+            <div className="health-status-chip">
+              <span className="health-pulse-dot" />
+              <span>99.9% Uptime</span>
+            </div>
+          </div>
+
+          {/* Central Latency Visualization with Waveforms */}
+          <div className="health-visual-radar">
+            <svg viewBox="0 0 340 110" className="health-radar-wave-svg" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="healthWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#281436" stopOpacity="0" />
+                  <stop offset="35%" stopColor="#502d55" stopOpacity="0.75" />
+                  <stop offset="70%" stopColor="#935073" stopOpacity="0.85" />
+                  <stop offset="100%" stopColor="#f6dbc0" stopOpacity="0.9" />
+                </linearGradient>
+              </defs>
+              <path d="M0 75 Q 85 25, 170 58 T 340 35" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1.8" />
+              <path d="M0 88 Q 95 38, 180 70 T 340 48" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1.2" opacity="0.6" />
+              <path d="M0 98 Q 105 52, 190 80 T 340 60" fill="none" stroke="url(#healthWaveGrad)" strokeWidth="1" opacity="0.35" />
+            </svg>
+            
+            <div className="health-radar-container">
+              <div className="radar-ring radar-ring-outer" />
+              <div className="radar-ring radar-ring-middle" />
+              <div className="radar-ring radar-ring-inner">
+                <Clock3 size={17} className="gauge-icon" />
+                <strong>0 min</strong>
+                <span>avg. latency</span>
               </div>
             </div>
           </div>
-          <div>
-            <div className="health-legend">
-              <span><i className="legend-ready" />Ready</span>
-              <span><i className="legend-waiting" />Real-Time Ingestion</span>
+
+          {/* Embedded 3-Stat Pipeline Telemetry Grid */}
+          <div className="health-telemetry-grid">
+            <div className="telemetry-pill">
+              <span className="telemetry-label">Ingestion</span>
+              <strong className="telemetry-value">Instant Webhook</strong>
+              <small className="telemetry-sub">Real-Time Gmail Push</small>
+            </div>
+            <div className="telemetry-pill">
+              <span className="telemetry-label">AI Triage</span>
+              <strong className="telemetry-value">Gemini 2.5</strong>
+              <small className="telemetry-sub">&lt; 1.0s avg latency</small>
+            </div>
+            <div className="telemetry-pill">
+              <span className="telemetry-label">In-Flight Queue</span>
+              <strong className="telemetry-value">0 Pending</strong>
+              <small className="telemetry-sub">All clear</small>
             </div>
           </div>
-          <span className="health-watermark" aria-hidden="true">✦</span>
+
+          {/* Health Legend & Status Pills */}
+          <div className="health-legend-row">
+            <div className="health-status-badge">
+              <i className="legend-dot legend-ready" />
+              <span>Pipeline: Ready</span>
+            </div>
+            <div className="health-status-badge">
+              <i className="legend-dot legend-active" />
+              <span>Real-Time Ingestion</span>
+            </div>
+            <div className="health-status-badge">
+              <i className="legend-dot legend-secure" />
+              <span>RLS Secured</span>
+            </div>
+          </div>
         </article>
 
-        {/* Start Here Focus Panel */}
+        {/* Connected Mailboxes & Inbox Connectivity Panel */}
         <article className="panel focus-panel" id="accounts">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">INBOX CONNECTIVITY</p>
               <h2>Connected Mailboxes</h2>
             </div>
-            <span className="progress-chip">{accounts.length} account{accounts.length !== 1 ? "s" : ""} active</span>
+            <span className="progress-chip">
+              {accounts.length} account{accounts.length !== 1 ? "s" : ""} active
+            </span>
           </div>
           <p className="panel-description">
             Connect the Gmail inboxes you rely on. Strike analyzes, scores, and summarizes your email stream.
           </p>
-          <div className="focus-steps">
-            <div className="focus-step">
-              <span className="step-index-badge">1</span>
-              <span>
+
+          {/* Structured & Elevated Step Cards */}
+          <div className="focus-steps-container">
+            {/* Step 1: Workspace Security */}
+            <div className="focus-step-card is-complete">
+              <div className="step-number-badge">01</div>
+              <div className="step-content">
                 <strong>Workspace secured</strong>
                 <small>Authenticated with Supabase RLS</small>
-              </span>
-              <CheckCircle2 size={18} className="step-success-icon" />
+              </div>
+              <div className="step-status-icon">
+                <CheckCircle2 size={18} className="step-success-svg" />
+              </div>
             </div>
+
+            {/* Step 2: Gmail Sync */}
             <div
-              className="focus-step"
+              className={`focus-step-card ${accounts.length > 0 ? "is-complete" : "is-actionable"}`}
               onClick={accounts.length === 0 ? onConnectGmail : undefined}
-              style={accounts.length === 0 ? { cursor: "pointer" } : undefined}
+              role={accounts.length === 0 ? "button" : undefined}
+              tabIndex={accounts.length === 0 ? 0 : undefined}
             >
-              <span className="step-index-badge">2</span>
-              <span>
+              <div className="step-number-badge">02</div>
+              <div className="step-content">
                 <strong>{accounts.length > 0 ? "Inboxes Synchronized" : "Connect Gmail"}</strong>
                 <small>
                   {accounts.length > 0
-                    ? `${accounts[0].email_address} (+${accounts.length - 1} more)`
+                    ? `${accounts[0].email_address}${accounts.length > 1 ? ` (+${accounts.length - 1} more)` : ""}`
                     : "Grant read-only access to your first inbox"}
                 </small>
-              </span>
-              {accounts.length > 0 ? (
-                <CheckCircle2 size={18} className="step-success-icon" />
-              ) : (
-                <ArrowUpRight size={17} className="step-arrow" />
-              )}
+              </div>
+              <div className="step-status-icon">
+                {accounts.length > 0 ? (
+                  <CheckCircle2 size={18} className="step-success-svg" />
+                ) : (
+                  <ArrowUpRight size={17} className="step-action-arrow" />
+                )}
+              </div>
             </div>
-            <div className="focus-step">
-              <span className="step-index-badge">3</span>
-              <span>
-                <strong>AI Intelligence Active</strong>
-                <small>Triage & summaries generated for 40 messages</small>
-              </span>
-              {receivedCount > 0 && <CheckCircle2 size={18} className="step-success-icon" />}
+
+            {/* Step 3: WhatsApp Stream */}
+            <div
+              className={`focus-step-card ${userSettings?.whatsapp_destination ? "is-complete" : "is-actionable"}`}
+              onClick={() => onNavigateToTab?.("settings")}
+              role="button"
+              tabIndex={0}
+            >
+              <div className="step-number-badge">03</div>
+              <div className="step-content">
+                <strong>{userSettings?.whatsapp_destination ? "WhatsApp Alerts Active" : "Connect WhatsApp Alerts"}</strong>
+                <small>
+                  {userSettings?.whatsapp_destination
+                    ? `Configured to ${userSettings.whatsapp_destination}`
+                    : "Add your phone number to receive real-time AI summaries"}
+                </small>
+              </div>
+              <div className="step-status-icon">
+                {userSettings?.whatsapp_destination ? (
+                  <CheckCircle2 size={18} className="step-success-svg" />
+                ) : (
+                  <ArrowUpRight size={17} className="step-action-arrow" />
+                )}
+              </div>
             </div>
           </div>
-          <button className="secondary-button" onClick={onConnectGmail} type="button">
-            <span>Connect another account</span>
-            <ArrowUpRight size={14} />
-          </button>
+
+          {/* Refined Connect Action Button */}
+          <div className="focus-actions-row">
+            <button className="focus-connect-button" onClick={onConnectGmail} type="button">
+              <span>Connect another account</span>
+              <ArrowUpRight size={15} />
+            </button>
+          </div>
         </article>
+      </section>
+
+      {/* WhatsApp Intelligence Banner / CTA */}
+      <section aria-label="WhatsApp Stream Integration" className="panel whatsapp-cta-banner" style={{
+        marginTop: "20px",
+        marginBottom: "24px",
+        padding: "20px 24px",
+        background: userSettings?.whatsapp_destination
+          ? "linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(80, 45, 85, 0.04) 100%)"
+          : "linear-gradient(135deg, rgba(80, 45, 85, 0.12) 0%, rgba(147, 80, 115, 0.06) 100%)",
+        border: userSettings?.whatsapp_destination
+          ? "1px solid rgba(34, 197, 94, 0.25)"
+          : "1px solid var(--line)",
+        borderRadius: "16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "20px",
+        flexWrap: "wrap",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "16px", maxWidth: "680px" }}>
+          <div style={{
+            width: "44px",
+            height: "44px",
+            borderRadius: "12px",
+            background: userSettings?.whatsapp_destination ? "#16a34a" : "var(--brand-plum)",
+            color: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            marginTop: "2px",
+            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+          }}>
+            <MessageSquare size={22} />
+          </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+              <span className="eyebrow" style={{ color: userSettings?.whatsapp_destination ? "#16a34a" : "var(--brand-plum)", fontWeight: 700 }}>
+                {userSettings?.whatsapp_destination ? "WHATSAPP STREAM CONNECTED" : "INSTANT AI NOTIFICATIONS"}
+              </span>
+              <span style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: "999px",
+                background: userSettings?.whatsapp_destination ? "rgba(34, 197, 94, 0.15)" : "rgba(234, 88, 12, 0.12)",
+                color: userSettings?.whatsapp_destination ? "#16a34a" : "#ea580c",
+              }}>
+                {userSettings?.whatsapp_destination ? "Live Dispatch" : "Setup Recommended"}
+              </span>
+            </div>
+            <h3 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 4px 0", color: "var(--ink)" }}>
+              {userSettings?.whatsapp_destination
+                ? `Delivering AI email briefs to ${userSettings.whatsapp_destination}`
+                : "Connect your WhatsApp number to get instant email briefs"}
+            </h3>
+            <p style={{ margin: 0, fontSize: "13px", color: "var(--muted)", lineHeight: 1.5 }}>
+              {userSettings?.whatsapp_destination
+                ? "Your urgent email summaries, action items, and triage alerts are dispatched in real-time."
+                : "Receive priority email summaries, extracted action items, and urgent alerts straight to your phone as soon as new emails arrive."}
+            </p>
+          </div>
+        </div>
+
+        <button
+          className={userSettings?.whatsapp_destination ? "secondary-button" : "primary-button"}
+          onClick={() => onNavigateToTab?.("settings")}
+          type="button"
+          style={{
+            padding: "0 20px",
+            height: "42px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+          }}
+        >
+          <MessageSquare size={16} />
+          <span>{userSettings?.whatsapp_destination ? "Manage & Test Number" : "Connect WhatsApp Number"}</span>
+          <ArrowUpRight size={15} />
+        </button>
       </section>
 
       {/* Activity Feed of Recent Processed Messages */}

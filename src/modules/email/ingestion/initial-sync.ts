@@ -36,16 +36,44 @@ function extractBodyText(payload: any): string {
 }
 
 /**
- * Performs a bounded sync for a connected Gmail account:
+ * Checks if two dates fall on the same calendar day in UTC.
+ */
+function isSameDayUTC(d1: Date, d2: Date): boolean {
+  return (
+    d1.getUTCFullYear() === d2.getUTCFullYear() &&
+    d1.getUTCMonth() === d2.getUTCMonth() &&
+    d1.getUTCDate() === d2.getUTCDate()
+  );
+}
+
+export type SyncedHistoricalMessage = {
+  id: string;
+  subject: string;
+  sender: string;
+  received_at: string;
+  snippet?: string;
+};
+
+export type SyncResult = {
+  syncedCount: number;
+  todayCount: number;
+  historicalCount: number;
+  historicalMessages: SyncedHistoricalMessage[];
+};
+
+/**
+ * Performs a bounded or full catch-up sync for a connected Gmail account:
  * 1. Authorizes a Gmail client using the decrypted refresh token.
- * 2. Fetches recent messages from INBOX.
+ * 2. Fetches messages from INBOX (up to maxMessages).
  * 3. Extracts headers, sender, subject, date, body, and snippets.
- * 4. Persists the normalized emails into `email_messages` and queues processing jobs.
+ * 4. Persists the normalized emails into `email_messages`.
+ * 5. Runs AI triage & summarization ONLY on today's messages.
+ * 6. Categorizes historical emails without consuming AI tokens.
  */
 export async function performInitialSync(
   supabase: SupabaseClient,
-  { accountId, userId, encryptedRefreshToken, maxMessages = 20 }: SyncAccountParams
-) {
+  { accountId, userId, encryptedRefreshToken, maxMessages = 100 }: SyncAccountParams
+): Promise<SyncResult> {
   const refreshToken = decryptToken(encryptedRefreshToken);
   const oauth2Client = getGoogleOAuthClient();
   oauth2Client.setCredentials({ refresh_token: refreshToken });
@@ -60,10 +88,19 @@ export async function performInitialSync(
 
   const messageList = listResponse.data.messages || [];
   if (messageList.length === 0) {
-    return { syncedCount: 0 };
+    return {
+      syncedCount: 0,
+      todayCount: 0,
+      historicalCount: 0,
+      historicalMessages: [],
+    };
   }
 
   let syncedCount = 0;
+  let todayCount = 0;
+  let historicalCount = 0;
+  const historicalMessages: SyncedHistoricalMessage[] = [];
+  const now = new Date();
 
   // 2. Fetch and parse each message
   for (const item of messageList) {
@@ -93,6 +130,11 @@ export async function performInitialSync(
       const snippet = message.snippet || "";
       const bodyText = extractBodyText(message.payload) || snippet;
 
+      // Check if the message is from today (within last 24h or same calendar day)
+      const isToday =
+        isSameDayUTC(receivedAt, now) ||
+        now.getTime() - receivedAt.getTime() < 24 * 60 * 60 * 1000;
+
       // Deduplication key
       const dedupeKey = `gmail:${accountId}:${message.id}`;
 
@@ -116,7 +158,7 @@ export async function performInitialSync(
             has_attachments: Boolean(
               message.payload?.parts?.some((part) => part.filename && part.filename.length > 0)
             ),
-            processing_status: "RECEIVED",
+            processing_status: isToday ? "RECEIVED" : "COMPLETED",
           },
           {
             onConflict: "account_id,provider_message_id",
@@ -128,23 +170,62 @@ export async function performInitialSync(
       if (!insertError && insertedMsg) {
         syncedCount++;
 
-        // Queue pending ingestion job for the AI pipeline
-        await supabase.from("processing_jobs").upsert(
-          {
-            message_id: insertedMsg.id,
-            stage: "ingestion",
-            status: "pending",
-            attempts: 0,
-            started_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "message_id,stage",
-            ignoreDuplicates: true,
-          }
-        );
+        if (isToday) {
+          todayCount++;
+          // Queue pending ingestion job for the live AI pipeline
+          await supabase.from("processing_jobs").upsert(
+            {
+              message_id: insertedMsg.id,
+              stage: "ingestion",
+              status: "pending",
+              attempts: 0,
+              started_at: new Date().toISOString(),
+            },
+            {
+              onConflict: "message_id,stage",
+              ignoreDuplicates: true,
+            }
+          );
+        } else {
+          historicalCount++;
+          historicalMessages.push({
+            id: insertedMsg.id,
+            subject,
+            sender: fromHeader,
+            received_at: receivedAt.toISOString(),
+            snippet,
+          });
+
+          // Insert default classification for historical email so it populates stats
+          await supabase.from("ai_results").upsert(
+            {
+              message_id: insertedMsg.id,
+              category: "normal",
+              importance: 0.4,
+              confidence: 0.85,
+              reason: "Historical email synced from connected inbox.",
+            },
+            {
+              onConflict: "message_id",
+              ignoreDuplicates: true,
+            }
+          );
+        }
       }
     } catch (err) {
       console.error(`Failed to sync message ${item.id}:`, err);
+      const { logLayerError } = await import("@/common/logging/layer-logger");
+      await logLayerError({
+        layer: "ingestion",
+        severity: "error",
+        errorCode: "GMAIL_MESSAGE_FETCH_FAILED",
+        errorMessage: `Failed to fetch/parse message ${item.id} from Gmail: ${err instanceof Error ? err.message : String(err)}`,
+        error: err,
+        userId,
+        accountId,
+        technicalDetails: { providerMessageId: item.id },
+        supabaseClient: supabase,
+      });
     }
   }
 
@@ -157,5 +238,10 @@ export async function performInitialSync(
     })
     .eq("id", accountId);
 
-  return { syncedCount };
+  return {
+    syncedCount,
+    todayCount,
+    historicalCount,
+    historicalMessages,
+  };
 }

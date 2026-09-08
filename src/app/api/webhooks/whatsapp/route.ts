@@ -128,30 +128,63 @@ export async function POST(request: NextRequest) {
 
           console.log(`📱 Inbound WhatsApp message from ${fromPhone}, type: ${msg.type}`);
 
-          // Handle Interactive Button Replies (e.g. "Mark Read", "Open Strike")
+          // Handle Interactive Button Replies (e.g. "Mark Read", "Archive", "Open Strike")
           if (msg.type === 'interactive' && msg.interactive?.button_reply) {
             const buttonId = msg.interactive.button_reply.id;
             const buttonTitle = msg.interactive.button_reply.title;
             console.log(`🔘 Button tapped: "${buttonTitle}" (ID: ${buttonId})`);
 
-            // If user clicked "Mark Read" (ID format: read_<messageIdPrefix>)
-            if (buttonId.startsWith('read_')) {
-              const msgIdPrefix = buttonId.replace('read_', '');
-              // Find matching message in delivery_attempts or email_messages
-              const { data: attempt } = await supabaseAdmin
-                .from('delivery_attempts')
-                .select('message_id')
-                .ilike('message_id', `${msgIdPrefix}%`)
+            // Check for message action (read_, archive_, handled_)
+            if (
+              buttonId.startsWith('read_') ||
+              buttonId.startsWith('archive_') ||
+              buttonId.startsWith('handled_')
+            ) {
+              const msgIdPrefix = buttonId.replace(/^(read_|archive_|handled_)/, '');
+
+              // 1. Locate message
+              const { data: emailMsg } = await supabaseAdmin
+                .from('email_messages')
+                .select('id, account_id, provider_message_id')
+                .ilike('id', `${msgIdPrefix}%`)
                 .limit(1)
                 .maybeSingle();
 
-              if (attempt?.message_id) {
+              if (emailMsg) {
+                // 2. Update status in database
                 await supabaseAdmin
                   .from('email_messages')
                   .update({ processing_status: 'PROCESSED' })
-                  .eq('id', attempt.message_id);
+                  .eq('id', emailMsg.id);
 
-                console.log(`✅ Marked email message ${attempt.message_id} as processed via WhatsApp action`);
+                // 3. Perform 2-Way Sync to Gmail if account token exists
+                try {
+                  const { data: account } = await supabaseAdmin
+                    .from('email_accounts')
+                    .select('encrypted_refresh_token')
+                    .eq('id', emailMsg.account_id)
+                    .single();
+
+                  if (account?.encrypted_refresh_token && emailMsg.provider_message_id) {
+                    const { modifyGmailMessage } = await import(
+                      '@/modules/email/providers/gmail/gmail.client'
+                    );
+
+                    const isArchive = buttonId.startsWith('archive_') || buttonId.startsWith('handled_');
+                    await modifyGmailMessage(
+                      account.encrypted_refresh_token,
+                      emailMsg.provider_message_id,
+                      {
+                        removeLabelIds: isArchive ? ['UNREAD', 'INBOX'] : ['UNREAD'],
+                      }
+                    );
+                    console.log(`✅ Synced action to Gmail for message ${emailMsg.provider_message_id}`);
+                  }
+                } catch (gmailSyncErr) {
+                  console.warn('Could not sync action to Gmail directly (may have readonly scope):', gmailSyncErr);
+                }
+
+                console.log(`✅ Marked email message ${emailMsg.id} as processed via WhatsApp action`);
               }
             }
           }

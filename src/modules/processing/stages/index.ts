@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logLayerError } from "@/common/logging/layer-logger";
 
 export type StageResult = {
   success: boolean;
@@ -35,9 +36,22 @@ export async function executeIngestionStage(
 ): Promise<StageResult> {
   // Validate that the message has essential data
   if (!message.subject && !message.snippet && !message.body_text) {
+    const errorMsg = "Message payload is empty (missing subject, snippet, and body).";
+    await logLayerError({
+      layer: "ingestion",
+      severity: "error",
+      errorCode: "EMPTY_PAYLOAD",
+      errorMessage: errorMsg,
+      userId: message.user_id,
+      accountId: message.account_id,
+      messageId: message.id,
+      technicalDetails: { messageRecord: message },
+      supabaseClient: supabase,
+    });
+
     return {
       success: false,
-      error: "Message payload is empty (missing subject, snippet, and body).",
+      error: errorMsg,
     };
   }
 
@@ -56,123 +70,178 @@ export async function executeIngestionStage(
 
 /**
  * 2. Pre-Filter Stage Handler
- * Runs deterministic heuristics (bounce detection, automated notifications, unsubscribe checks).
- * If email is deemed noise, marks as DISCARDED; otherwise queues for AI triage.
+ * Runs deterministic heuristics (bounce detection, automated system failure notices).
+ * If email is deemed true noise (auto-reply, mailer-daemon), marks as DISCARDED;
+ * otherwise advances to AI triage (including transactional, billing, security & no-reply notices).
  */
 export async function executePreFilterStage(
   supabase: SupabaseClient,
   message: EmailMessageRecord
 ): Promise<StageResult> {
-  const sender = (message.sender?.raw || "").toLowerCase();
-  const subject = (message.subject || "").toLowerCase();
-  const snippet = (message.snippet || "").toLowerCase();
+  try {
+    const sender = (message.sender?.raw || "").toLowerCase();
+    const subject = (message.subject || "").toLowerCase();
 
-  // Heuristic patterns for automated discard / non-actionable email
-  const isAutomatedNoise =
-    sender.includes("no-reply") ||
-    sender.includes("noreply") ||
-    sender.includes("mailer-daemon") ||
-    sender.includes("notifications@") ||
-    subject.includes("automatic reply:") ||
-    subject.includes("out of office:") ||
-    subject.includes("undeliverable:");
+    // True machine-generated bounce and automated out-of-office autoreplies
+    const isAutomatedNoise =
+      sender.includes("mailer-daemon") ||
+      sender.includes("postmaster@") ||
+      subject.includes("automatic reply:") ||
+      subject.includes("out of office:") ||
+      subject.includes("undeliverable:");
 
-  if (isAutomatedNoise) {
+    if (isAutomatedNoise) {
+      await supabase
+        .from("email_messages")
+        .update({ processing_status: "DISCARDED" })
+        .eq("id", message.id);
+
+      return {
+        success: true,
+        nextStage: null, // End of pipeline for discarded noise
+        messageStatus: "DISCARDED",
+        metadata: { reason: "automated_noise_prefilter" },
+      };
+    }
+
+    // Passed pre-filter -> Advance to triage
     await supabase
       .from("email_messages")
-      .update({ processing_status: "DISCARDED" })
+      .update({ processing_status: "TRIAGED" })
       .eq("id", message.id);
 
     return {
       success: true,
-      nextStage: null, // End of pipeline for discarded noise
-      messageStatus: "DISCARDED",
-      metadata: { reason: "automated_noise_prefilter" },
+      nextStage: "triage",
+      messageStatus: "TRIAGED",
+    };
+  } catch (filterErr) {
+    await logLayerError({
+      layer: "filtration",
+      severity: "error",
+      errorCode: "PRE_FILTER_FAILED",
+      errorMessage: "Deterministic pre-filtering failed to evaluate message.",
+      error: filterErr,
+      userId: message.user_id,
+      accountId: message.account_id,
+      messageId: message.id,
+      supabaseClient: supabase,
+    });
+
+    return {
+      success: false,
+      error: filterErr instanceof Error ? filterErr.message : "Pre-filter stage error",
     };
   }
-
-  // Passed pre-filter -> Advance to triage
-  await supabase
-    .from("email_messages")
-    .update({ processing_status: "TRIAGED" })
-    .eq("id", message.id);
-
-  return {
-    success: true,
-    nextStage: "triage",
-    messageStatus: "TRIAGED",
-  };
 }
 
 /**
- * 3. Triage Stage Handler (AI Classification)
- * Evaluates urgency, category, and importance score using Gemini / OpenAI.
+ * 3. Triage Stage Handler (AI Classification & Scoring)
+ * Evaluates urgency, category, and importance score using Gemini / OpenAI,
+ * factoring in the user's custom priority instructions and threshold preferences.
+ *
+ * Conditional Pipeline Optimization:
+ * Summarizes ONLY emails that are from TODAY and meet the DELIVERY criteria.
  */
 export async function executeTriageStage(
   supabase: SupabaseClient,
   message: EmailMessageRecord
 ): Promise<StageResult> {
-  const { triageEmailWithAi } = await import("@/modules/ai/prompts/triage");
+  try {
+    const { triageEmailWithAi } = await import("@/modules/ai/prompts/triage");
 
-  const aiTriage = await triageEmailWithAi({
-    subject: message.subject,
-    sender: message.sender?.raw || "Unknown",
-    recipient: message.recipients?.[0]?.raw,
-    snippet: message.snippet,
-    bodyText: message.body_text,
-  });
+    // Fetch user threshold preference & custom priority rules
+    const { data: userSettings } = await supabase
+      .from("user_settings")
+      .select("importance_threshold, custom_priority_rules")
+      .eq("user_id", message.user_id)
+      .maybeSingle();
 
-  // Upsert into ai_results table with exact schema match
-  await supabase.from("ai_results").upsert(
-    {
-      message_id: message.id,
-      category: aiTriage.result.category,
-      importance: aiTriage.result.importance,
-      confidence: aiTriage.result.confidence,
-      reason: aiTriage.result.reason,
-      model: aiTriage.model,
-      prompt_version: aiTriage.promptVersion,
-      input_tokens: aiTriage.inputTokens ?? null,
-      output_tokens: aiTriage.outputTokens ?? null,
-      triaged_at: new Date().toISOString(),
-    },
-    { onConflict: "message_id" }
-  );
+    const customRules = userSettings?.custom_priority_rules as
+      | { instructions?: string; vipSenders?: string[]; ignoreKeywords?: string[] }
+      | undefined;
 
-  // Fetch user threshold preference if configured
-  const { data: userSettings } = await supabase
-    .from("user_settings")
-    .select("importance_threshold")
-    .eq("user_id", message.user_id)
-    .maybeSingle();
+    const aiTriage = await triageEmailWithAi({
+      subject: message.subject,
+      sender: message.sender?.raw || "Unknown",
+      recipient: message.recipients?.[0]?.raw,
+      snippet: message.snippet,
+      bodyText: message.body_text,
+      userCustomRules: customRules,
+    });
 
-  const threshold = userSettings?.importance_threshold ? Number(userSettings.importance_threshold) : 0.70;
-  const isHighImportance = aiTriage.result.importance >= threshold || aiTriage.result.category === "important";
+    // Upsert into ai_results table with exact schema match
+    await supabase.from("ai_results").upsert(
+      {
+        message_id: message.id,
+        category: aiTriage.result.category,
+        importance: aiTriage.result.importance,
+        confidence: aiTriage.result.confidence,
+        reason: aiTriage.result.reason,
+        model: aiTriage.model,
+        prompt_version: aiTriage.promptVersion,
+        input_tokens: aiTriage.inputTokens ?? null,
+        output_tokens: aiTriage.outputTokens ?? null,
+        triaged_at: new Date().toISOString(),
+      },
+      { onConflict: "message_id" }
+    );
 
-  // If high importance, advance to summary stage; otherwise complete at TRIAGED
-  if (isHighImportance) {
+    const threshold = userSettings?.importance_threshold ? Number(userSettings.importance_threshold) : 0.70;
+    const isHighImportance = aiTriage.result.importance >= threshold || aiTriage.result.category === "important";
+
+    // Check if message is received today
+    const messageDate = new Date(message.received_at);
+    const now = new Date();
+    const isToday =
+      messageDate.getFullYear() === now.getFullYear() &&
+      messageDate.getMonth() === now.getMonth() &&
+      messageDate.getDate() === now.getDate();
+
+    // Conditional Summarization: ONLY summarize if from Today AND meets delivery threshold
+    if (isToday && isHighImportance) {
+      await supabase
+        .from("email_messages")
+        .update({ processing_status: "SUMMARIZING" })
+        .eq("id", message.id);
+
+      return {
+        success: true,
+        nextStage: "summary",
+        messageStatus: "SUMMARIZING",
+      };
+    }
+
+    // For non-today or non-deliverable emails, finalize at TRIAGED (skip summary stage to conserve tokens)
     await supabase
       .from("email_messages")
-      .update({ processing_status: "SUMMARIZING" })
+      .update({ processing_status: "TRIAGED" })
       .eq("id", message.id);
 
     return {
       success: true,
-      nextStage: "summary",
-      messageStatus: "SUMMARIZING",
+      nextStage: null,
+      messageStatus: "TRIAGED",
+    };
+  } catch (triageErr) {
+    await logLayerError({
+      layer: "triage",
+      severity: "error",
+      errorCode: "AI_TRIAGE_FAILED",
+      errorMessage: "AI triage classification failed to score message.",
+      error: triageErr,
+      userId: message.user_id,
+      accountId: message.account_id,
+      messageId: message.id,
+      technicalDetails: { subject: message.subject, sender: message.sender },
+      supabaseClient: supabase,
+    });
+
+    return {
+      success: false,
+      error: triageErr instanceof Error ? triageErr.message : "Triage stage failure",
     };
   }
-
-  await supabase
-    .from("email_messages")
-    .update({ processing_status: "TRIAGED" })
-    .eq("id", message.id);
-
-  return {
-    success: true,
-    nextStage: null,
-    messageStatus: "TRIAGED",
-  };
 }
 
 /**
@@ -183,39 +252,59 @@ export async function executeSummaryStage(
   supabase: SupabaseClient,
   message: EmailMessageRecord
 ): Promise<StageResult> {
-  const { summarizeEmailWithAi } = await import("@/modules/ai/prompts/summary");
+  try {
+    const { summarizeEmailWithAi } = await import("@/modules/ai/prompts/summary");
 
-  const aiSummary = await summarizeEmailWithAi({
-    subject: message.subject,
-    sender: message.sender?.raw || "Unknown",
-    recipient: message.recipients?.[0]?.raw,
-    snippet: message.snippet,
-    bodyText: message.body_text,
-  });
+    const aiSummary = await summarizeEmailWithAi({
+      subject: message.subject,
+      sender: message.sender?.raw || "Unknown",
+      recipient: message.recipients?.[0]?.raw,
+      snippet: message.snippet,
+      bodyText: message.body_text,
+    });
 
-  // Upsert into summaries table with exact schema match
-  await supabase.from("summaries").upsert(
-    {
-      message_id: message.id,
-      summary_text: aiSummary.result.summary_text,
-      extracted_items: aiSummary.result.extracted_items,
-      model: aiSummary.model,
-      prompt_version: aiSummary.promptVersion,
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: "message_id" }
-  );
+    // Upsert into summaries table with exact schema match
+    await supabase.from("summaries").upsert(
+      {
+        message_id: message.id,
+        summary_text: aiSummary.result.summary_text,
+        extracted_items: aiSummary.result.extracted_items,
+        model: aiSummary.model,
+        prompt_version: aiSummary.promptVersion,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: "message_id" }
+    );
 
-  await supabase
-    .from("email_messages")
-    .update({ processing_status: "SUMMARY_READY" })
-    .eq("id", message.id);
+    await supabase
+      .from("email_messages")
+      .update({ processing_status: "SUMMARY_READY" })
+      .eq("id", message.id);
 
-  return {
-    success: true,
-    nextStage: "delivery",
-    messageStatus: "SUMMARY_READY",
-  };
+    return {
+      success: true,
+      nextStage: "delivery",
+      messageStatus: "SUMMARY_READY",
+    };
+  } catch (summaryErr) {
+    await logLayerError({
+      layer: "summarization",
+      severity: "error",
+      errorCode: "AI_SUMMARY_FAILED",
+      errorMessage: "AI summarization failed to generate executive brief.",
+      error: summaryErr,
+      userId: message.user_id,
+      accountId: message.account_id,
+      messageId: message.id,
+      technicalDetails: { subject: message.subject },
+      supabaseClient: supabase,
+    });
+
+    return {
+      success: false,
+      error: summaryErr instanceof Error ? summaryErr.message : "Summary stage failure",
+    };
+  }
 }
 
 /**
@@ -252,6 +341,10 @@ export async function executeDeliveryStage(
   if (destinationPhone && summaryRecord?.summary_text) {
     try {
       const { sendStrikeEmailAlert } = await import("@/modules/whatsapp");
+      const extractedActionItems = Array.isArray(summaryRecord.extracted_items)
+        ? summaryRecord.extracted_items
+        : (summaryRecord.extracted_items as { action_items?: Array<{ action: string; deadline?: string; assignee?: string }> })?.action_items || [];
+
       await sendStrikeEmailAlert({
         recipientPhone: destinationPhone,
         sender: message.sender?.raw,
@@ -259,7 +352,7 @@ export async function executeDeliveryStage(
         summaryText: summaryRecord.summary_text,
         category: triageRecord?.category,
         importance: triageRecord?.importance,
-        actionItems: (summaryRecord.extracted_items as Record<string, unknown>)?.action_items as Array<{ action: string; deadline?: string; assignee?: string }> || [],
+        actionItems: extractedActionItems,
         emailMessageId: message.id,
         userId: message.user_id,
       });
@@ -276,7 +369,31 @@ export async function executeDeliveryStage(
       };
     } catch (err: unknown) {
       console.error("WhatsApp delivery error in pipeline:", err);
+      const errMsg = err instanceof Error ? err.message : "WhatsApp delivery failed";
+
+      await logLayerError({
+        layer: "delivery",
+        severity: "error",
+        errorCode: "WHATSAPP_DISPATCH_FAILED",
+        errorMessage: errMsg,
+        error: err,
+        userId: message.user_id,
+        accountId: message.account_id,
+        messageId: message.id,
+        technicalDetails: {
+          destinationPhone,
+          summarySnippet: summaryRecord.summary_text.slice(0, 100),
+        },
+        supabaseClient: supabase,
+      });
+
+      return {
+        success: false,
+        error: errMsg,
+      };
     }
+  } else if (!destinationPhone) {
+    console.warn(`Skipping WhatsApp delivery for message ${message.id}: No whatsapp_destination configured in user_settings.`);
   }
 
   // If WhatsApp was skipped or not configured, finalize message status as PROCESSED
@@ -291,4 +408,5 @@ export async function executeDeliveryStage(
     messageStatus: "PROCESSED",
   };
 }
+
 

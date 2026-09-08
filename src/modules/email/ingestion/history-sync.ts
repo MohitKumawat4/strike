@@ -179,6 +179,18 @@ export async function processHistorySync(
       }
     } catch (err) {
       console.error(`Failed to ingest message ${messageId} via history sync:`, err);
+      const { logLayerError } = await import("@/common/logging/layer-logger");
+      await logLayerError({
+        layer: "ingestion",
+        severity: "error",
+        errorCode: "HISTORY_MESSAGE_INGEST_FAILED",
+        errorMessage: `Failed to ingest message ${messageId} via history sync: ${err instanceof Error ? err.message : String(err)}`,
+        error: err,
+        userId,
+        accountId,
+        technicalDetails: { providerMessageId: messageId, startHistoryId },
+        supabaseClient: supabase,
+      });
     }
   }
 

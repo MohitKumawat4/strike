@@ -2,30 +2,37 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
 import {
   AlertCircle,
+  ArrowRight,
   BarChart2,
   Bell,
   CheckCircle2,
+  Compass,
+  ExternalLink,
   FileText,
+  Flame,
   Inbox,
   LayoutDashboard,
   LogOut,
   Mail,
   Menu,
   Moon,
+  Plus,
   Search,
   Settings2,
-  Shield,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Sun,
+  Tag,
   X,
 } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
+import { MessageDetailDrawer } from "./message-detail-drawer";
 
 /* Tab components */
 import { OverviewTab } from "./tabs/overview-tab";
@@ -35,6 +42,7 @@ import { ProcessingTab } from "./tabs/processing-tab";
 import { AnalyticsTab } from "./tabs/analytics-tab";
 import { TemplatesTab } from "./tabs/templates-tab";
 import { SettingsTab } from "./tabs/settings-tab";
+import { ErrorLogsTab } from "./tabs/error-logs-tab";
 
 /* ——————————————————————————————————————————————
  * Shared types exported for use by tab components
@@ -53,6 +61,8 @@ export type ConnectedAccount = {
 export type EmailMessage = {
   id: string;
   account_id: string;
+  provider_message_id?: string;
+  thread_id?: string | null;
   subject: string;
   snippet?: string;
   body_text?: string;
@@ -86,18 +96,25 @@ export type ProcessingJob = {
   completed_at?: string;
 };
 
+export type CustomPriorityRules = {
+  instructions?: string;
+  vipSenders?: string[];
+  ignoreKeywords?: string[];
+};
+
 export type UserSettings = {
   importance_threshold?: number;
   raw_body_retention_days?: number;
   notify_on_important?: boolean;
   notify_on_failure?: boolean;
   whatsapp_destination?: string | null;
+  custom_priority_rules?: CustomPriorityRules;
 };
 
 /* Tab key type for the sidebar navigation */
-type TabKey = "overview" | "messages" | "accounts" | "processing" | "analytics" | "templates" | "settings";
+type TabKey = "overview" | "messages" | "accounts" | "processing" | "analytics" | "templates" | "settings" | "error_logs";
 
-/* Sidebar navigation definition */
+/* Sidebar navigation definition — used on desktop sidebar and mobile hamburger drawer */
 const NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boolean }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
   { key: "messages", label: "Messages", icon: Inbox, count: true },
@@ -108,13 +125,503 @@ const NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boole
   { key: "settings", label: "Settings", icon: Settings2 },
 ];
 
-/* Quick items for mobile bottom bar */
-const MOBILE_BOTTOM_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boolean }[] = [
-  { key: "overview", label: "Overview", icon: LayoutDashboard },
-  { key: "messages", label: "Messages", icon: Inbox, count: true },
-  { key: "accounts", label: "Accounts", icon: Mail },
-  { key: "settings", label: "Settings", icon: Settings2 },
+/* ——————————————————————————————————————————————
+ * Global Search Modal / Command Palette Component
+ * —————————————————————————————————————————————— */
+type GlobalSearchModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  messages: EmailMessage[];
+  accounts: ConnectedAccount[];
+  onNavigateToTab: (tabKey: TabKey) => void;
+  onSelectMessage: (msg: EmailMessage) => void;
+  onConnectGmail: () => void;
+  onToggleTheme: () => void;
+  currentTheme: string;
+};
+
+type TabSearchResult = {
+  id: string;
+  type: "tab";
+  tabKey: TabKey;
+  title: string;
+  subtitle: string;
+  icon: typeof LayoutDashboard;
+  badge?: string;
+};
+
+type PageSearchResult = {
+  id: string;
+  type: "page";
+  url: string;
+  title: string;
+  subtitle: string;
+  icon: typeof Compass;
+};
+
+type ActionSearchResult = {
+  id: string;
+  type: "action";
+  title: string;
+  subtitle: string;
+  icon: typeof Sparkles;
+  action: () => void;
+};
+
+type EmailSearchResult = {
+  id: string;
+  type: "email";
+  message: EmailMessage;
+  title: string;
+  sender: string;
+  date: string;
+  category?: string;
+  importance?: number;
+  mailbox: string;
+};
+
+type SearchResultItem =
+  | TabSearchResult
+  | PageSearchResult
+  | ActionSearchResult
+  | EmailSearchResult;
+
+const NAVIGATION_TABS_LIST: Array<{
+  key: TabKey;
+  title: string;
+  subtitle: string;
+  icon: typeof LayoutDashboard;
+}> = [
+  { key: "overview", title: "Overview Dashboard", subtitle: "Command center metrics & processing health", icon: LayoutDashboard },
+  { key: "messages", title: "Messages & Buckets", subtitle: "Inbox intelligence, time windows & category filters", icon: Inbox },
+  { key: "accounts", title: "Connected Mailboxes", subtitle: "Manage Gmail OAuth connections & sync status", icon: Mail },
+  { key: "processing", title: "Live AI Activity & Pipeline", subtitle: "Real-time email triage stream & system health", icon: ShieldCheck },
+  { key: "analytics", title: "Analytics & Performance", subtitle: "Email volume breakdown & AI classification trends", icon: BarChart2 },
+  { key: "templates", title: "WhatsApp Templates", subtitle: "Manage outbound notification & briefing templates", icon: FileText },
+  { key: "settings", title: "Settings & AI Priority Rules", subtitle: "Custom triage rules, VIP senders & WhatsApp setup", icon: Settings2 },
 ];
+
+const STATIC_PAGES_LIST = [
+  { url: "/privacy", title: "Privacy Policy", subtitle: "Data protection and Google user data privacy", icon: Compass },
+  { url: "/terms", title: "Terms of Service", subtitle: "Strike service terms and acceptable use", icon: Compass },
+  { url: "/", title: "Strike Home Landing", subtitle: "Public home and features showcase", icon: Compass },
+];
+
+function GlobalSearchModal({
+  isOpen,
+  onClose,
+  messages,
+  accounts,
+  onNavigateToTab,
+  onSelectMessage,
+  onConnectGmail,
+  onToggleTheme,
+  currentTheme,
+}: GlobalSearchModalProps) {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const accountMap = useMemo(
+    () => new Map(accounts.map((a) => [a.id, a.email_address])),
+    [accounts]
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      setQuery("");
+      setSelectedIndex(0);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    // 1. Navigation Tabs
+    const matchedTabs: TabSearchResult[] = NAVIGATION_TABS_LIST.filter((tab) => {
+      if (!q) return true;
+      return tab.title.toLowerCase().includes(q) || tab.subtitle.toLowerCase().includes(q) || tab.key.includes(q);
+    }).map((tab) => ({
+      id: `tab-${tab.key}`,
+      type: "tab" as const,
+      tabKey: tab.key,
+      title: tab.title,
+      subtitle: tab.subtitle,
+      icon: tab.icon,
+      badge: tab.key === "messages" && messages.length > 0 ? `${messages.length}` : undefined,
+    }));
+
+    // 2. Static Pages
+    const matchedPages: PageSearchResult[] = STATIC_PAGES_LIST.filter((page) => {
+      if (!q) return false;
+      return page.title.toLowerCase().includes(q) || page.subtitle.toLowerCase().includes(q) || page.url.includes(q);
+    }).map((page) => ({
+      id: `page-${page.url}`,
+      type: "page" as const,
+      url: page.url,
+      title: page.title,
+      subtitle: page.subtitle,
+      icon: page.icon,
+    }));
+
+    // 3. Quick Actions
+    const quickActions: ActionSearchResult[] = [
+      {
+        id: "action-connect",
+        type: "action" as const,
+        title: "Connect New Gmail Account",
+        subtitle: "Authorize Google OAuth inbox access",
+        icon: Plus,
+        action: onConnectGmail,
+      },
+      {
+        id: "action-theme",
+        type: "action" as const,
+        title: currentTheme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme",
+        subtitle: "Toggle dashboard interface color scheme",
+        icon: currentTheme === "dark" ? Sun : Moon,
+        action: onToggleTheme,
+      },
+      {
+        id: "action-priority-rules",
+        type: "action" as const,
+        title: "Configure Custom AI Priority Rules",
+        subtitle: "Set VIP senders & ignore keywords in Settings",
+        icon: Sparkles,
+        action: () => onNavigateToTab("settings"),
+      },
+    ].filter((action) => {
+      if (!q) return true;
+      return action.title.toLowerCase().includes(q) || action.subtitle.toLowerCase().includes(q);
+    });
+
+    // 4. Matching Emails (auto-suggests after 3 letters or 2+)
+    let matchedEmails: EmailSearchResult[] = [];
+    if (q.length >= 2) {
+      matchedEmails = messages
+        .filter((msg) => {
+          const subject = msg.subject?.toLowerCase() || "";
+          const sender = msg.sender?.raw?.toLowerCase() || "";
+          const snippet = msg.snippet?.toLowerCase() || "";
+          const category = msg.ai_category?.toLowerCase() || "";
+          const reason = msg.ai_reason?.toLowerCase() || "";
+          const actionItems = (msg.summary?.extracted_items || []).map((i) => i.action.toLowerCase()).join(" ");
+
+          return (
+            subject.includes(q) ||
+            sender.includes(q) ||
+            snippet.includes(q) ||
+            category.includes(q) ||
+            reason.includes(q) ||
+            actionItems.includes(q)
+          );
+        })
+        .slice(0, 8)
+        .map((msg) => ({
+          id: `email-${msg.id}`,
+          type: "email" as const,
+          message: msg,
+          title: msg.subject || "(No Subject)",
+          sender: msg.sender?.raw?.split("<")[0]?.trim() || msg.sender?.raw || "Unknown Sender",
+          date: msg.received_at
+            ? new Date(msg.received_at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })
+            : "—",
+          category: msg.ai_category,
+          importance: msg.ai_importance,
+          mailbox: accountMap.get(msg.account_id) || "Connected inbox",
+        }));
+    }
+
+    return {
+      tabs: matchedTabs,
+      pages: matchedPages,
+      actions: quickActions,
+      emails: matchedEmails,
+      allFlat: [...matchedTabs, ...matchedPages, ...quickActions, ...matchedEmails] as SearchResultItem[],
+    };
+  }, [query, messages, currentTheme, accountMap, onConnectGmail, onToggleTheme, onNavigateToTab]);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev + 1) % Math.max(1, results.allFlat.length));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev - 1 + results.allFlat.length) % Math.max(1, results.allFlat.length));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const selected = results.allFlat[selectedIndex];
+        if (selected) {
+          handleExecuteItem(selected);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, selectedIndex, results.allFlat]);
+
+  function handleExecuteItem(item: SearchResultItem) {
+    if (item.type === "tab") {
+      onNavigateToTab(item.tabKey);
+      onClose();
+    } else if (item.type === "page") {
+      router.push(item.url);
+      onClose();
+    } else if (item.type === "action") {
+      item.action();
+      onClose();
+    } else if (item.type === "email") {
+      onSelectMessage(item.message);
+      onClose();
+    }
+  }
+
+  if (!isOpen) return null;
+
+  let flatCounter = 0;
+
+  return (
+    <div className="global-search-backdrop" onClick={onClose}>
+      <div className="global-search-modal" onClick={(e) => e.stopPropagation()}>
+        {/* Search Header */}
+        <div className="global-search-header">
+          <Search size={18} className="global-search-icon" />
+          <input
+            ref={inputRef}
+            type="text"
+            className="global-search-input"
+            placeholder="Search tabs, emails, VIP rules (type 3 letters for auto-suggestions)…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query && (
+            <button
+              type="button"
+              className="global-search-clear"
+              onClick={() => setQuery("")}
+              aria-label="Clear query"
+            >
+              <X size={14} />
+            </button>
+          )}
+          <kbd className="global-search-kbd">ESC</kbd>
+        </div>
+
+        {/* Results Body */}
+        <div className="global-search-body">
+          {query.length > 0 && query.length < 3 && (
+            <div className="global-search-hint">
+              <Sparkles size={13} />
+              <span>Type at least 3 letters for instant deep inbox search & email suggestions</span>
+            </div>
+          )}
+
+          {/* 1. Emails */}
+          {results.emails.length > 0 && (
+            <div className="global-search-section">
+              <div className="global-search-section-title">
+                <span>INBOX EMAILS & INTELLIGENCE</span>
+                <span className="global-search-section-count">{results.emails.length} matches</span>
+              </div>
+              {results.emails.map((item) => {
+                const currentIndex = flatCounter++;
+                const isSelected = selectedIndex === currentIndex;
+                const msg = item.message;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`global-search-item ${isSelected ? "selected" : ""}`}
+                    onClick={() => handleExecuteItem(item)}
+                    onMouseEnter={() => setSelectedIndex(currentIndex)}
+                  >
+                    <div className="global-search-item-avatar">
+                      {(item.sender || "?")[0].toUpperCase()}
+                    </div>
+                    <div className="global-search-item-info">
+                      <div className="global-search-item-top">
+                        <span className="global-search-item-sender">{item.sender}</span>
+                        <span className="global-search-item-date">{item.date}</span>
+                      </div>
+                      <div className="global-search-item-subject">
+                        {item.title}
+                      </div>
+                      {msg.snippet && (
+                        <div className="global-search-item-snippet">
+                          {msg.snippet}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="global-search-item-badge-wrap">
+                      {item.category && (
+                        <span
+                          className={`status-badge ${
+                            item.category === "important"
+                              ? "badge-success"
+                              : item.category === "promotional"
+                              ? "badge-waiting"
+                              : item.category === "spam"
+                              ? "badge-error"
+                              : "badge-processing"
+                          }`}
+                          style={{ fontSize: "10.5px", padding: "1px 6px" }}
+                        >
+                          {item.category}
+                        </span>
+                      )}
+                      <ArrowRight size={14} className="global-search-item-arrow" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 2. Tabs */}
+          {results.tabs.length > 0 && (
+            <div className="global-search-section">
+              <div className="global-search-section-title">
+                <span>NAVIGATION TABS</span>
+              </div>
+              {results.tabs.map((item) => {
+                const currentIndex = flatCounter++;
+                const isSelected = selectedIndex === currentIndex;
+                const Icon = item.icon;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`global-search-item ${isSelected ? "selected" : ""}`}
+                    onClick={() => handleExecuteItem(item)}
+                    onMouseEnter={() => setSelectedIndex(currentIndex)}
+                  >
+                    <div className="global-search-item-icon-box">
+                      <Icon size={16} />
+                    </div>
+                    <div className="global-search-item-info">
+                      <div className="global-search-item-title">{item.title}</div>
+                      <div className="global-search-item-subtitle">{item.subtitle}</div>
+                    </div>
+                    {item.badge && (
+                      <span className="global-search-item-count">{item.badge}</span>
+                    )}
+                    <ArrowRight size={14} className="global-search-item-arrow" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 3. Pages */}
+          {results.pages.length > 0 && (
+            <div className="global-search-section">
+              <div className="global-search-section-title">
+                <span>PAGES</span>
+              </div>
+              {results.pages.map((item) => {
+                const currentIndex = flatCounter++;
+                const isSelected = selectedIndex === currentIndex;
+                const Icon = item.icon;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`global-search-item ${isSelected ? "selected" : ""}`}
+                    onClick={() => handleExecuteItem(item)}
+                    onMouseEnter={() => setSelectedIndex(currentIndex)}
+                  >
+                    <div className="global-search-item-icon-box">
+                      <Icon size={16} />
+                    </div>
+                    <div className="global-search-item-info">
+                      <div className="global-search-item-title">{item.title}</div>
+                      <div className="global-search-item-subtitle">{item.subtitle}</div>
+                    </div>
+                    <ExternalLink size={13} className="global-search-item-arrow" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 4. Quick Actions */}
+          {results.actions.length > 0 && (
+            <div className="global-search-section">
+              <div className="global-search-section-title">
+                <span>QUICK ACTIONS</span>
+              </div>
+              {results.actions.map((item) => {
+                const currentIndex = flatCounter++;
+                const isSelected = selectedIndex === currentIndex;
+                const Icon = item.icon;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`global-search-item ${isSelected ? "selected" : ""}`}
+                    onClick={() => handleExecuteItem(item)}
+                    onMouseEnter={() => setSelectedIndex(currentIndex)}
+                  >
+                    <div className="global-search-item-icon-box" style={{ background: "rgba(80, 45, 85, 0.08)", color: "var(--brand-plum)" }}>
+                      <Icon size={16} />
+                    </div>
+                    <div className="global-search-item-info">
+                      <div className="global-search-item-title">{item.title}</div>
+                      <div className="global-search-item-subtitle">{item.subtitle}</div>
+                    </div>
+                    <ArrowRight size={14} className="global-search-item-arrow" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {results.allFlat.length === 0 && (
+            <div className="global-search-empty">
+              <Search size={32} strokeWidth={1.5} />
+              <p>No results found for &ldquo;{query}&rdquo;</p>
+              <small>Try searching for a tab name, sender email, or keyword.</small>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="global-search-footer">
+          <div className="global-search-footer-hint">
+            <span>Navigate</span>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd>
+          </div>
+          <div className="global-search-footer-hint">
+            <span>Select</span>
+            <kbd>↵</kbd>
+          </div>
+          <div className="global-search-footer-hint">
+            <span>Close</span>
+            <kbd>ESC</kbd>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ——————————————————————————————————————————————
  * DashboardShell Props — all data is server-fetched
@@ -128,6 +635,7 @@ type DashboardShellProps = {
   messages?: EmailMessage[];
   processingJobs?: ProcessingJob[];
   userSettings?: UserSettings | null;
+  initialTab?: TabKey;
   aiResults?: Array<{
     message_id: string;
     category: string;
@@ -145,17 +653,40 @@ export function DashboardShell({
   messages = [],
   processingJobs = [],
   userSettings = null,
+  initialTab = "overview",
 }: DashboardShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { resolvedTheme, setTheme } = useTheme();
 
-  /* Active sidebar tab — defaults to overview */
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  /* Active sidebar tab — defaults to initialTab */
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [period, setPeriod] = useState("Last 7 days");
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [banner, setBanner] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  /* Global Search State & Selected Email Drawer */
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [selectedGlobalMessage, setSelectedGlobalMessage] = useState<EmailMessage | null>(null);
+
+  const [currentUserSettings, setCurrentUserSettings] = useState<UserSettings | null>(userSettings);
+
+  useEffect(() => {
+    setCurrentUserSettings(userSettings);
+  }, [userSettings]);
+
+  // Global Keyboard Shortcut: ⌘ K or Ctrl K to open search
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    }
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   // Read URL status messages from OAuth redirect
   useEffect(() => {
@@ -179,6 +710,47 @@ export function DashboardShell({
       });
     }
   }, [searchParams]);
+
+  // Supabase Realtime: subscribe to instant Postgres change events for emails and jobs
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase
+      .channel("strike-dashboard-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "email_messages" },
+        () => {
+          router.refresh();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "processing_jobs" },
+        () => {
+          router.refresh();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "email_accounts" },
+        () => {
+          router.refresh();
+        }
+      )
+      .subscribe();
+
+    // Fallback background polling every 30 seconds when tab is active
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        router.refresh();
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
+  }, [router]);
 
   // Connect Gmail Action Trigger
   function handleConnectGmail() {
@@ -224,9 +796,11 @@ export function DashboardShell({
             importantCount={importantCount}
             messages={messages}
             onConnectGmail={handleConnectGmail}
+            onNavigateToTab={handleTabSelect}
             onPeriodChange={handlePeriodChange}
             period={period}
             receivedCount={receivedCount}
+            userSettings={currentUserSettings}
           />
         );
       case "messages":
@@ -240,7 +814,14 @@ export function DashboardShell({
           />
         );
       case "processing":
-        return <ProcessingTab jobs={processingJobs} />;
+        return (
+          <ProcessingTab
+            accounts={accounts}
+            jobs={processingJobs}
+            messages={messages}
+            userSettings={currentUserSettings}
+          />
+        );
       case "analytics":
         return (
           <AnalyticsTab
@@ -251,8 +832,16 @@ export function DashboardShell({
         );
       case "templates":
         return <TemplatesTab />;
+      case "error_logs":
+        return <ErrorLogsTab />;
       case "settings":
-        return <SettingsTab email={email} userSettings={userSettings} />;
+        return (
+          <SettingsTab
+            email={email}
+            userSettings={currentUserSettings}
+            onUpdateUserSettings={setCurrentUserSettings}
+          />
+        );
       default:
         return null;
     }
@@ -261,236 +850,201 @@ export function DashboardShell({
   return (
     <div className="dashboard-app">
       {/* =========================================================================
-          DESKTOP SIDEBAR
+          UNIFIED FULL-WIDTH STICKY TOP NAVBAR (CONNECTED TO STRIKE LOGO)
           ========================================================================= */}
-      <aside className="dashboard-sidebar">
-        <div className="brand-lockup">
-          <span className="brand-mark"><Sparkles size={15} /></span>
-          <span>strike</span>
+      <header className="dashboard-header">
+        {/* Left: Strike Brand Lockup & Mobile Toggle */}
+        <div className="header-left">
+          <button
+            type="button"
+            onClick={() => setIsMobileNavOpen(true)}
+            className="mobile-nav-toggle md:hidden"
+            aria-label="Open navigation drawer"
+          >
+            <Menu size={18} />
+          </button>
+
+          <Link href="/" className="brand-lockup" title="Strike Home">
+            <span className="brand-mark"><Sparkles size={15} /></span>
+            <span className="brand-name">strike</span>
+          </Link>
         </div>
 
-        <nav aria-label="Dashboard navigation" className="sidebar-nav">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={`nav-item ${activeTab === item.key ? "active" : ""}`}
-                key={item.key}
-                onClick={() => handleTabSelect(item.key)}
-                type="button"
-              >
-                <Icon size={18} />
-                <span>{item.label}</span>
-                {/* Show message count badge on Messages tab */}
-                {item.count && (
-                  <span className="nav-count">{receivedCount}</span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Bottom User Indicator & Legal Links */}
-        <div className="sidebar-footer">
-          <div
-            className="sidebar-legal-links"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "2px",
-              width: "100%",
-              marginBottom: "12px",
-              borderTop: "1px solid var(--line)",
-              paddingTop: "12px",
-            }}
-          >
-            <Link
-              href="/privacy"
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "6px 8px",
-                fontSize: "0.76rem",
-                color: "var(--muted)",
-                textDecoration: "none",
-                borderRadius: "6px",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <Shield size={13} style={{ flexShrink: 0 }} />
-              <span>Privacy Policy</span>
-            </Link>
-            <Link
-              href="/terms"
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "6px 8px",
-                fontSize: "0.76rem",
-                color: "var(--muted)",
-                textDecoration: "none",
-                borderRadius: "6px",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <FileText size={13} style={{ flexShrink: 0 }} />
-              <span>Terms of Service</span>
-            </Link>
-          </div>
-
+        {/* Center: Global Search Bar & Command Palette */}
+        <div className="header-center">
           <button
-            aria-label={`Signed in as ${email}. Click to sign out.`}
-            className="sidebar-user-pill"
-            disabled={isSigningOut}
-            onClick={signOut}
-            title={isSigningOut ? "Signing out…" : `Sign out (${email})`}
             type="button"
+            className="search-box"
+            onClick={() => setIsSearchOpen(true)}
+            aria-label="Search email intelligence, tabs, and commands"
           >
-            <span>{initials}</span>
+            <Search size={15} aria-hidden="true" />
+            <span className="search-placeholder">
+              Search tabs, emails, VIP rules…
+            </span>
+            <kbd className="search-kbd">⌘ K</kbd>
           </button>
         </div>
-      </aside>
+
+        {/* Right: Actions */}
+        <div className="header-actions">
+          <button
+            aria-label={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            className="icon-button theme-toggle"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            title={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            type="button"
+          >
+            {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button aria-label="Notifications" className="icon-button" type="button">
+            <Bell size={18} />
+            <span className="notification-dot" />
+          </button>
+          <span className="header-avatar" title={email}>{initials}</span>
+        </div>
+      </header>
 
       {/* =========================================================================
-          MOBILE SLIDE-OVER NAVIGATION DRAWER
+          DASHBOARD BODY (SIDEBAR + MAIN CONTENT AREA)
           ========================================================================= */}
-      {isMobileNavOpen && (
-        <div className="mobile-nav-overlay" onClick={() => setIsMobileNavOpen(false)}>
-          <div className="mobile-nav-drawer" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
-              <div className="flex items-center gap-2 font-extrabold text-lg text-[var(--ink)]">
-                <div className="w-7 h-7 rounded-lg bg-[var(--brand-plum)] text-white flex items-center justify-center text-xs">
-                  <Sparkles size={14} />
-                </div>
-                <span>strike</span>
+      <div className="dashboard-body">
+        {/* Desktop Sidebar Navigation */}
+        <aside className="dashboard-sidebar">
+          <nav aria-label="Dashboard navigation" className="sidebar-nav">
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  className={`nav-item ${activeTab === item.key ? "active" : ""}`}
+                  key={item.key}
+                  onClick={() => handleTabSelect(item.key)}
+                  type="button"
+                >
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                  {/* Show message count badge on Messages tab */}
+                  {item.count && (
+                    <span className="nav-count">{receivedCount}</span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Sidebar Footer with Legal & User Profile */}
+          <div className="sidebar-footer">
+            <div className="sidebar-legal">
+              <Link href="/privacy" className="sidebar-legal-link">Privacy</Link>
+              <span className="sidebar-legal-dot">•</span>
+              <Link href="/terms" className="sidebar-legal-link">Terms</Link>
+            </div>
+            <div className="sidebar-user-row">
+              <span className="sidebar-user-avatar">{initials}</span>
+              <div className="sidebar-user-info">
+                <span className="sidebar-user-name">{email ? email.split("@")[0] : "User"}</span>
+                <span className="sidebar-user-email">{email}</span>
               </div>
               <button
                 type="button"
-                onClick={() => setIsMobileNavOpen(false)}
-                className="w-8 h-8 rounded-lg border border-[var(--line)] flex items-center justify-center text-[var(--muted)]"
-                aria-label="Close drawer"
+                onClick={signOut}
+                disabled={isSigningOut}
+                className="sidebar-signout-btn"
+                title="Sign out"
               >
-                <X size={16} />
+                <LogOut size={15} />
               </button>
             </div>
+          </div>
+        </aside>
 
-            <nav className="space-y-1 flex-1">
-              {NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => handleTabSelect(item.key)}
-                    className={`w-full flex items-center justify-between p-3 rounded-xl text-sm font-bold transition-colors ${
-                      isActive
-                        ? "bg-[var(--surface-pill)] text-[var(--brand-plum)]"
-                        : "text-[var(--muted)] hover:bg-[var(--surface-muted)]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      <span>{item.label}</span>
-                    </div>
-                    {item.count && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink)]">
-                        {receivedCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="pt-4 mt-4 border-t border-[var(--line)] space-y-3">
-              <div className="flex flex-col gap-1 text-xs text-[var(--muted)] font-semibold">
-                <Link href="/privacy" className="py-1 hover:text-[var(--ink)]">
-                  Privacy Policy
-                </Link>
-                <Link href="/terms" className="py-1 hover:text-[var(--ink)]">
-                  Terms of Service
-                </Link>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-[var(--line)]">
-                <div className="flex items-center gap-2">
-                  <span className="w-8 h-8 rounded-full bg-[var(--surface-pill)] text-[var(--brand-plum)] flex items-center justify-center font-bold text-xs">
-                    {initials}
-                  </span>
-                  <div className="text-xs font-bold text-[var(--ink)] truncate max-w-[140px]">
-                    {email}
+        {/* Mobile Slide-Over Navigation Drawer */}
+        {isMobileNavOpen && (
+          <div className="mobile-nav-overlay" onClick={() => setIsMobileNavOpen(false)}>
+            <div className="mobile-nav-drawer" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
+                <Link href="/" className="flex items-center gap-2 font-extrabold text-lg text-[var(--ink)] no-underline" title="Strike Home">
+                  <div className="w-7 h-7 rounded-lg bg-[var(--brand-plum)] text-white flex items-center justify-center text-xs">
+                    <Sparkles size={14} />
                   </div>
-                </div>
+                  <span>strike</span>
+                </Link>
                 <button
                   type="button"
-                  onClick={signOut}
-                  disabled={isSigningOut}
-                  className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
-                  title="Sign out"
+                  onClick={() => setIsMobileNavOpen(false)}
+                  className="w-8 h-8 rounded-lg border border-[var(--line)] flex items-center justify-center text-[var(--muted)]"
+                  aria-label="Close drawer"
                 >
-                  <LogOut size={16} />
+                  <X size={16} />
                 </button>
+              </div>
+
+              <nav className="space-y-1 flex-1">
+                {NAV_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => handleTabSelect(item.key)}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-sm font-bold transition-colors ${
+                        isActive
+                          ? "bg-[var(--surface-pill)] text-[var(--brand-plum)]"
+                          : "text-[var(--muted)] hover:bg-[var(--surface-muted)]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={18} />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.count && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink)]">
+                          {receivedCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="pt-4 mt-4 border-t border-[var(--line)] space-y-3">
+                <div className="flex flex-col gap-1 text-xs text-[var(--muted)] font-semibold">
+                  <Link href="/privacy" className="py-1 hover:text-[var(--ink)]">
+                    Privacy Policy
+                  </Link>
+                  <Link href="/terms" className="py-1 hover:text-[var(--ink)]">
+                    Terms of Service
+                  </Link>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-[var(--line)]">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-full bg-[var(--surface-pill)] text-[var(--brand-plum)] flex items-center justify-center font-bold text-xs">
+                      {initials}
+                    </span>
+                    <div className="text-xs font-bold text-[var(--ink)] truncate max-w-[140px]">
+                      {email}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={signOut}
+                    disabled={isSigningOut}
+                    className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+                    title="Sign out"
+                  >
+                    <LogOut size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* =========================================================================
-          MAIN CONTENT AREA & TOP HEADER
-          ========================================================================= */}
-      <main className="dashboard-main">
-        {/* Top Navigation Bar */}
-        <header className="dashboard-header">
-          {/* Mobile Hamburger Button + Brand */}
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setIsMobileNavOpen(true)}
-              className="md:hidden w-8 h-8 rounded-lg border border-[var(--line)] bg-[var(--surface)] flex items-center justify-center text-[var(--ink)]"
-              aria-label="Open navigation drawer"
-            >
-              <Menu size={17} />
-            </button>
-            <div className="mobile-brand">
-              <span className="brand-mark"><Sparkles size={14} /></span>
-              <span>strike</span>
-            </div>
-          </div>
-
-          <label className="search-box">
-            <Search size={16} aria-hidden="true" />
-            <input aria-label="Search email intelligence" placeholder="Search your email intelligence" />
-            <kbd>⌘ K</kbd>
-          </label>
-
-          <div className="header-actions">
-            <button
-              aria-label={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-              className="icon-button theme-toggle"
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              title={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-              type="button"
-            >
-              {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button aria-label="Notifications" className="icon-button" type="button">
-              <Bell size={18} />
-              <span className="notification-dot" />
-            </button>
-            <span className="header-avatar">{initials}</span>
-          </div>
-        </header>
-
-        {/* Inner Dashboard Content — switches per active tab */}
-        <section className="dashboard-content">
+        {/* Main Content Area */}
+        <main className="dashboard-main">
+          <section className="dashboard-content">
           {banner && (
             <div
               className={`dashboard-banner ${banner.type === "error" ? "banner-error" : "banner-success"}`}
@@ -527,32 +1081,49 @@ export function DashboardShell({
             </div>
           )}
           {renderTabContent()}
+
+          {/* Dashboard Footer with Privacy and Terms Links */}
+          <footer className="dashboard-footer">
+            <span className="dashboard-footer-copy">
+              © {new Date().getFullYear()} Strike. All rights reserved.
+            </span>
+            <div className="dashboard-footer-links">
+              <Link className="dashboard-footer-link" href="/privacy">
+                Privacy Policy
+              </Link>
+              <span className="dashboard-footer-divider">•</span>
+              <Link className="dashboard-footer-link" href="/terms">
+                Terms of Service
+              </Link>
+            </div>
+          </footer>
         </section>
       </main>
+    </div>
 
-      {/* =========================================================================
-          MOBILE QUICK BOTTOM NAVIGATION BAR
-          ========================================================================= */}
-      <nav aria-label="Mobile navigation" className="mobile-bottom-nav md:hidden">
-        {MOBILE_BOTTOM_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.key;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => handleTabSelect(item.key)}
-              className={`mobile-bottom-nav-item ${isActive ? "active" : ""}`}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-              {item.count && receivedCount > 0 && (
-                <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-[var(--brand-plum)]" />
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      {/* Global Search & Command Palette Modal */}
+      <GlobalSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        messages={messages}
+        accounts={accounts}
+        onNavigateToTab={handleTabSelect}
+        onSelectMessage={(msg) => {
+          setSelectedGlobalMessage(msg);
+        }}
+        onConnectGmail={handleConnectGmail}
+        onToggleTheme={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+        currentTheme={resolvedTheme || "light"}
+      />
+
+      {/* Global Selected Message Detail Drawer */}
+      {selectedGlobalMessage && (
+        <MessageDetailDrawer
+          accounts={accounts}
+          message={selectedGlobalMessage}
+          onClose={() => setSelectedGlobalMessage(null)}
+        />
+      )}
     </div>
   );
 }

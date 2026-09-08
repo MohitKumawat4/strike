@@ -30,7 +30,19 @@ export default function PrivacyPolicyPage() {
             <ArrowLeft size={16} />
             <span>Back to Dashboard</span>
           </Link>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "1.1rem" }}>
+          <Link
+            href="/"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontWeight: 700,
+              fontSize: "1.1rem",
+              color: "inherit",
+              textDecoration: "none",
+            }}
+            title="Strike Home"
+          >
             <span
               style={{
                 width: "28px",
@@ -46,7 +58,7 @@ export default function PrivacyPolicyPage() {
               <Sparkles size={14} />
             </span>
             <span>strike</span>
-          </div>
+          </Link>
         </div>
 
         {/* Hero Section */}
