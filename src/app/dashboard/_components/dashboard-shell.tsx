@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
 import {
   AlertCircle,
@@ -711,7 +711,37 @@ export function DashboardShell({
     }
   }, [searchParams]);
 
-  // Supabase Realtime: subscribe to instant Postgres change events for emails and jobs
+  // Silent background delta sync: automatically pulls newly arrived emails from Gmail API
+  const isBackgroundSyncingRef = useRef(false);
+
+  const triggerBackgroundSync = useCallback(async () => {
+    if (isBackgroundSyncingRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
+    isBackgroundSyncingRef.current = true;
+    try {
+      const res = await fetch("/api/accounts/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const hasNew = data?.results?.some(
+          (r: { synced?: number; today?: number }) => (r.synced ?? 0) > 0 || (r.today ?? 0) > 0
+        );
+        if (hasNew) {
+          router.refresh();
+        }
+      }
+    } catch (err) {
+      console.debug("Silent background sync non-fatal error:", err);
+    } finally {
+      isBackgroundSyncingRef.current = false;
+    }
+  }, [router]);
+
+  // Supabase Realtime & Continuous Background Sync
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     const channel = supabase
@@ -739,18 +769,35 @@ export function DashboardShell({
       )
       .subscribe();
 
-    // Fallback background polling every 30 seconds when tab is active
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") {
+    // 1. Initial background sync 1.5s after dashboard load
+    const initialTimer = setTimeout(() => {
+      void triggerBackgroundSync();
+    }, 1500);
+
+    // 2. Periodic background delta sync every 45 seconds when active
+    const syncInterval = setInterval(() => {
+      void triggerBackgroundSync();
+    }, 45000);
+
+    // 3. Sync immediately when user switches back to the tab
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void triggerBackgroundSync();
         router.refresh();
       }
-    }, 30000);
+    };
+
+    window.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
 
     return () => {
-      clearInterval(interval);
+      clearTimeout(initialTimer);
+      clearInterval(syncInterval);
+      window.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
       void supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [router, triggerBackgroundSync]);
 
   // Connect Gmail Action Trigger
   function handleConnectGmail() {
