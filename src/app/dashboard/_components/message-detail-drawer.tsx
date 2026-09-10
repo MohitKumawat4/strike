@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   X,
   Mail,
@@ -17,6 +17,11 @@ import {
 } from "lucide-react";
 
 import type { ConnectedAccount, EmailMessage } from "./dashboard-shell";
+import {
+  decodeHtmlEntities,
+  convertHtmlToCleanText,
+  cleanSummaryText,
+} from "@/common/types/domain";
 
 type MessageDetailDrawerProps = {
   message: EmailMessage | null;
@@ -42,10 +47,41 @@ export function MessageDetailDrawer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  const cleanSubject = useMemo(() => {
+    return decodeHtmlEntities(message?.subject) || "(No Subject)";
+  }, [message?.subject]);
+
+  const cleanSender = useMemo(() => {
+    return decodeHtmlEntities(message?.sender?.raw) || "Unknown Sender";
+  }, [message?.sender?.raw]);
+
+  const cleanExecutiveSummary = useMemo(() => {
+    return cleanSummaryText(message?.summary?.summary_text);
+  }, [message?.summary?.summary_text]);
+
+  const cleanFormattedBody = useMemo(() => {
+    if (!message) return "(No content available)";
+    const rawBody = message.body_text || message.snippet || "";
+    if (!rawBody.trim()) return "(No content available)";
+
+    // If body contains HTML markup, convert it to clean human-readable text
+    if (
+      rawBody.includes("<html") ||
+      rawBody.includes("<!DOCTYPE") ||
+      rawBody.includes("<style") ||
+      rawBody.includes("<table") ||
+      /<[a-z][\s\S]*>/i.test(rawBody)
+    ) {
+      return convertHtmlToCleanText(rawBody);
+    }
+
+    return decodeHtmlEntities(rawBody);
+  }, [message]);
+
   if (!message) return null;
 
   const connectedAccount = accounts.find((a) => a.id === message.account_id);
-  const senderDisplay = message.sender?.raw || "Unknown Sender";
+  const senderDisplay = cleanSender;
   const receivedFormatted = message.received_at
     ? new Date(message.received_at).toLocaleString("en-US", {
         weekday: "short",
@@ -78,7 +114,7 @@ export function MessageDetailDrawer({
         <div className="drawer-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
           <div className="drawer-header-left" style={{ flex: 1, minWidth: 0 }}>
             <span className="drawer-eyebrow">MESSAGE INTELLIGENCE</span>
-            <h2>{message.subject || "(No Subject)"}</h2>
+            <h2>{cleanSubject}</h2>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
             <a
@@ -212,7 +248,7 @@ export function MessageDetailDrawer({
                   <h3>Executive Summary</h3>
                 </div>
               </div>
-              <p className="drawer-summary-text">{message.summary.summary_text}</p>
+              <p className="drawer-summary-text">{cleanExecutiveSummary}</p>
 
               {/* Extracted Action Items */}
               {Array.isArray(message.summary.extracted_items) &&
@@ -224,9 +260,9 @@ export function MessageDetailDrawer({
                         <li key={idx} className="drawer-action-item">
                           <CheckCircle2 size={15} className="action-check-icon" />
                           <div className="action-item-content">
-                            <strong>{item.action}</strong>
+                            <strong>{decodeHtmlEntities(item.action)}</strong>
                             {item.deadline && item.deadline !== "None" && (
-                              <small>Due: {item.deadline}</small>
+                              <small>Due: {decodeHtmlEntities(item.deadline)}</small>
                             )}
                           </div>
                         </li>
@@ -260,21 +296,21 @@ export function MessageDetailDrawer({
 
             <div className="drawer-email-body">
               {viewMode === "formatted" ? (
-                <div className="email-body-text">
-                  {message.body_text || message.snippet || "(No content available)"}
+                <div className="email-body-text" style={{ whiteSpace: "pre-line", wordBreak: "break-word" }}>
+                  {cleanFormattedBody}
                 </div>
               ) : (
                 <pre className="email-body-raw">
                   {JSON.stringify(
                     {
-                      subject: message.subject,
-                      sender: message.sender,
-                      snippet: message.snippet,
+                      subject: cleanSubject,
+                      sender: cleanSender,
+                      snippet: decodeHtmlEntities(message.snippet),
                       received_at: message.received_at,
                       processing_status: message.processing_status,
                       ai_category: message.ai_category,
                       ai_importance: message.ai_importance,
-                      ai_reason: message.ai_reason,
+                      ai_reason: decodeHtmlEntities(message.ai_reason),
                     },
                     null,
                     2

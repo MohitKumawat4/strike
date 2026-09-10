@@ -2,6 +2,13 @@ import { google } from "googleapis";
 import { getGoogleOAuthClient } from "@/modules/email/providers/gmail/gmail.client";
 import { decryptToken } from "@/common/crypto/encryption";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  decodeHtmlEntities,
+  convertHtmlToCleanText,
+  cleanSummaryText,
+} from "@/common/types/domain";
+
+export { decodeHtmlEntities, convertHtmlToCleanText, cleanSummaryText };
 
 type SyncAccountParams = {
   accountId: string;
@@ -11,28 +18,79 @@ type SyncAccountParams = {
 };
 
 /**
- * Recursively extracts plain text body from a Gmail payload part tree.
+ * Safely decodes base64url-encoded Gmail payload body strings.
  */
-function extractBodyText(payload: any): string {
-  if (!payload) return "";
-  if (payload.mimeType === "text/plain" && payload.body?.data) {
-    return Buffer.from(payload.body.data, "base64").toString("utf-8");
+function decodeBase64Payload(data?: string): string {
+  if (!data) return "";
+  try {
+    const sanitized = data.replace(/-/g, "+").replace(/_/g, "/");
+    return Buffer.from(sanitized, "base64").toString("utf-8");
+  } catch {
+    return "";
   }
-  if (payload.parts && Array.isArray(payload.parts)) {
-    for (const part of payload.parts) {
-      if (part.mimeType === "text/plain" && part.body?.data) {
-        return Buffer.from(part.body.data, "base64").toString("utf-8");
-      }
-      if (part.parts) {
-        const nested = extractBodyText(part);
-        if (nested) return nested;
+}
+
+/**
+ * Recursively inspects a Gmail MIME part hierarchy to extract clean plain text and raw HTML.
+ */
+export function extractCleanEmailContent(payload: any, fallbackSnippet: string = ""): {
+  bodyText: string;
+  bodyHtml?: string;
+} {
+  let plain = "";
+  let html = "";
+
+  function traverse(part: any) {
+    if (!part) return;
+
+    const mime = (part.mimeType || "").toLowerCase();
+
+    if (mime === "text/plain" && part.body?.data && !plain) {
+      plain = decodeBase64Payload(part.body.data);
+    } else if (mime === "text/html" && part.body?.data && !html) {
+      html = decodeBase64Payload(part.body.data);
+    }
+
+    if (part.parts && Array.isArray(part.parts)) {
+      for (const subPart of part.parts) {
+        traverse(subPart);
       }
     }
   }
-  if (payload.body?.data) {
-    return Buffer.from(payload.body.data, "base64").toString("utf-8");
+
+  traverse(payload);
+
+  // Fallback to top-level body if not found in multipart tree
+  if (!plain && !html && payload?.body?.data) {
+    const rawData = decodeBase64Payload(payload.body.data);
+    if (
+      payload.mimeType === "text/html" ||
+      rawData.includes("<html") ||
+      rawData.includes("<!DOCTYPE") ||
+      rawData.includes("<body")
+    ) {
+      html = rawData;
+    } else {
+      plain = rawData;
+    }
   }
-  return "";
+
+  let bodyText = "";
+  if (plain && plain.trim().length > 0) {
+    // If plain text exists, clean and decode entities
+    bodyText = decodeHtmlEntities(plain.trim());
+  } else if (html && html.trim().length > 0) {
+    // If only HTML exists (marketing/transactional emails), convert to clean text
+    bodyText = convertHtmlToCleanText(html);
+  } else {
+    // Fallback to snippet
+    bodyText = decodeHtmlEntities(fallbackSnippet);
+  }
+
+  return {
+    bodyText: bodyText.trim(),
+    bodyHtml: html || undefined,
+  };
 }
 
 /**
@@ -120,15 +178,20 @@ export async function performInitialSync(
       const getHeader = (name: string) =>
         headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
 
-      const subject = getHeader("Subject") || "(No Subject)";
-      const fromHeader = getHeader("From") || "Unknown Sender";
+      const rawSubject = getHeader("Subject") || "(No Subject)";
+      const rawSender = getHeader("From") || "Unknown Sender";
       const toHeader = getHeader("To") || "";
       const dateHeader = getHeader("Date");
       const receivedAt = dateHeader ? new Date(dateHeader) : new Date();
 
-      // Extract body text & snippet
-      const snippet = message.snippet || "";
-      const bodyText = extractBodyText(message.payload) || snippet;
+      // Decode HTML entities in metadata fields
+      const subject = decodeHtmlEntities(rawSubject);
+      const fromHeader = decodeHtmlEntities(rawSender);
+      const rawSnippet = message.snippet || "";
+      const snippet = decodeHtmlEntities(rawSnippet);
+
+      // Extract clean readable body text & raw HTML
+      const { bodyText, bodyHtml } = extractCleanEmailContent(message.payload, snippet);
 
       // Check if the message is from today (within last 24h or same calendar day)
       const isToday =
@@ -152,6 +215,7 @@ export async function performInitialSync(
             subject,
             snippet,
             body_text: bodyText,
+            body_html: bodyHtml || null,
             received_at: receivedAt.toISOString(),
             ingested_at: new Date().toISOString(),
             dedupe_key: dedupeKey,

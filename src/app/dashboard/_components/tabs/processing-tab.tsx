@@ -26,6 +26,7 @@ import {
 
 import type { ConnectedAccount, EmailMessage, ProcessingJob, UserSettings } from "../dashboard-shell";
 import { MessageDetailDrawer } from "../message-detail-drawer";
+import { decodeHtmlEntities } from "@/common/types/domain";
 
 type ProcessingTabProps = {
   jobs: ProcessingJob[];
@@ -64,32 +65,7 @@ export function ProcessingTab({
       ? parseFloat(userSettings.importance_threshold)
       : (userSettings?.importance_threshold ?? 0.7);
   const totalReceived = messages.length;
-
-  const triagedCount = messages.filter(
-    (m) => Boolean(m.ai_category) || m.processing_status === "COMPLETED" || m.processing_status === "DELIVERED" || m.processing_status === "TRIAGED"
-  ).length;
-
-  const importantCount = messages.filter(
-    (m) =>
-      m.ai_category === "important" ||
-      (typeof m.ai_importance === "number" && m.ai_importance >= threshold)
-  ).length;
-
-  const promotionalCount = messages.filter((m) => m.ai_category === "promotional").length;
-  const spamCount = messages.filter((m) => m.ai_category === "spam").length;
-  const normalCount = messages.filter(
-    (m) =>
-      (!m.ai_category || m.ai_category === "normal") &&
-      (!m.ai_importance || m.ai_importance < threshold)
-  ).length;
-
-  const noiseCount = promotionalCount + spamCount + normalCount;
-  const noiseReductionPercent =
-    totalReceived > 0 ? Math.round((noiseCount / totalReceived) * 100) : 0;
-
   const hasWhatsApp = Boolean(userSettings?.whatsapp_destination);
-  const actualDeliveredCount = messages.filter((m) => m.processing_status === "DELIVERED").length;
-  const deliveredCount = actualDeliveredCount > 0 ? actualDeliveredCount : (hasWhatsApp ? importantCount : 0);
 
   /* Derive live activity items with human-friendly outcomes */
   const activityItems = useMemo(() => {
@@ -105,7 +81,7 @@ export function ProcessingTab({
         type: ActivityFilter;
       };
 
-      if (m.processing_status === "DELIVERED" || (isImportant && hasWhatsApp && m.processing_status === "COMPLETED")) {
+      if (m.processing_status === "DELIVERED") {
         outcome = {
           label: "📱 Sent to WhatsApp",
           color: "#16a34a",
@@ -114,10 +90,10 @@ export function ProcessingTab({
         };
       } else if (isImportant) {
         outcome = {
-          label: "⚡ Executive Brief Ready",
+          label: hasWhatsApp ? "📱 WhatsApp Stream Active" : "⚡ Executive Brief Ready",
           color: "#8b5cf6",
           bg: "rgba(139, 92, 246, 0.12)",
-          type: "important",
+          type: hasWhatsApp ? "whatsapp" : "important",
         };
       } else if (m.ai_category === "promotional") {
         outcome = {
@@ -142,7 +118,7 @@ export function ProcessingTab({
         };
       } else {
         outcome = {
-          label: "🗄️ Filed to Normal Inbox",
+          label: "🗄️ Filtered (Normal Noise)",
           color: "var(--brand-plum)",
           bg: "var(--surface-pill)",
           type: "filtered",
@@ -158,12 +134,25 @@ export function ProcessingTab({
     });
   }, [messages, threshold, hasWhatsApp, accountMap]);
 
+  /* Synchronized Funnel & Badge Counts */
+  const triagedCount = totalReceived;
+  const importantCount = activityItems.filter((item) => item.isImportant).length;
+  const noiseCount = activityItems.filter((item) => item.outcome.type === "filtered").length;
+  const whatsappDeliveredCount = activityItems.filter(
+    (item) => item.outcome.type === "whatsapp" || (hasWhatsApp && item.isImportant)
+  ).length;
+
+  const noiseReductionPercent =
+    totalReceived > 0 ? Math.round((noiseCount / totalReceived) * 100) : 0;
+
   /* Filter activity items */
   const filteredActivity = useMemo(() => {
     let result = [...activityItems];
 
     if (activityFilter === "whatsapp") {
-      result = result.filter((item) => item.outcome.type === "whatsapp");
+      result = result.filter(
+        (item) => item.outcome.type === "whatsapp" || (hasWhatsApp && item.isImportant)
+      );
     } else if (activityFilter === "important") {
       result = result.filter((item) => item.isImportant);
     } else if (activityFilter === "filtered") {
@@ -180,7 +169,7 @@ export function ProcessingTab({
     }
 
     return result;
-  }, [activityItems, activityFilter, search]);
+  }, [activityItems, activityFilter, search, hasWhatsApp]);
 
   /* Pagination */
   const totalPages = Math.max(1, Math.ceil(filteredActivity.length / pageSize));
@@ -418,9 +407,9 @@ export function ProcessingTab({
             <div className="pipeline-stage pipeline-stage-active" style={{ minWidth: "150px", border: "1px solid rgba(34, 197, 94, 0.3)", background: "rgba(34, 197, 94, 0.05)" }}>
               <Smartphone size={18} style={{ color: "#16a34a" }} />
               <span style={{ color: "#16a34a" }}>5. WhatsApp Alerts</span>
-              <strong style={{ color: "#16a34a" }}>{deliveredCount}</strong>
+              <strong style={{ color: "#16a34a" }}>{whatsappDeliveredCount}</strong>
               <small style={{ fontSize: "10.5px", color: "var(--muted)", fontWeight: 500, marginTop: "2px" }}>
-                Sent to your phone
+                {hasWhatsApp ? "Live stream active" : "Connect phone"}
               </small>
             </div>
           </div>
@@ -484,7 +473,7 @@ export function ProcessingTab({
                 cursor: "pointer",
               }}
             >
-              📱 WhatsApp Delivered ({deliveredCount})
+              📱 WhatsApp Delivered ({whatsappDeliveredCount})
             </button>
 
             <button
@@ -549,14 +538,14 @@ export function ProcessingTab({
                         {/* Sender & Subject */}
                         <td className="msg-sender-cell" style={{ maxWidth: "260px" }}>
                           <span className="msg-sender-avatar">
-                            {(message.sender?.raw || "?")[0].toUpperCase()}
+                            {(decodeHtmlEntities(message.sender?.raw) || "?")[0].toUpperCase()}
                           </span>
                           <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
                             <span className="msg-sender-text" style={{ fontWeight: 650 }}>
-                              {message.sender?.raw?.split("<")[0]?.trim() || message.sender?.raw || "Unknown"}
+                              {decodeHtmlEntities(message.sender?.raw)?.split("<")[0]?.trim() || decodeHtmlEntities(message.sender?.raw) || "Unknown"}
                             </span>
                             <span style={{ fontSize: "12px", color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {message.subject || "(No Subject)"}
+                              {decodeHtmlEntities(message.subject) || "(No Subject)"}
                             </span>
                           </div>
                         </td>
@@ -658,10 +647,10 @@ export function ProcessingTab({
                   <div className="mobile-card-header">
                     <div className="mobile-card-sender">
                       <span className="mobile-card-avatar">
-                        {(message.sender?.raw || "?")[0].toUpperCase()}
+                        {(decodeHtmlEntities(message.sender?.raw) || "?")[0].toUpperCase()}
                       </span>
                       <span className="mobile-card-sender-text">
-                        {message.sender?.raw?.split("<")[0]?.trim() || message.sender?.raw || "Unknown"}
+                        {decodeHtmlEntities(message.sender?.raw)?.split("<")[0]?.trim() || decodeHtmlEntities(message.sender?.raw) || "Unknown"}
                       </span>
                     </div>
                     <span className="mobile-card-date">
@@ -675,7 +664,7 @@ export function ProcessingTab({
                   </div>
 
                   <div style={{ fontSize: "13px", fontWeight: 650, color: "var(--ink)", margin: "6px 0 8px 0" }}>
-                    {message.subject || "(No Subject)"}
+                    {decodeHtmlEntities(message.subject) || "(No Subject)"}
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>

@@ -25,6 +25,7 @@ import {
 
 import type { ConnectedAccount, EmailMessage } from "../dashboard-shell";
 import { MessageDetailDrawer } from "../message-detail-drawer";
+import { decodeHtmlEntities, cleanSummaryText } from "@/common/types/domain";
 
 type MessagesTabProps = {
   messages: EmailMessage[];
@@ -611,10 +612,10 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
                     >
                       <td className="msg-sender-cell">
                         <span className="msg-sender-avatar">
-                          {(msg.sender?.raw || "?")[0].toUpperCase()}
+                          {(decodeHtmlEntities(msg.sender?.raw) || "?")[0].toUpperCase()}
                         </span>
                         <span className="msg-sender-text">
-                          {msg.sender?.raw || "Unknown"}
+                          {decodeHtmlEntities(msg.sender?.raw) || "Unknown"}
                         </span>
                       </td>
                       <td>
@@ -639,7 +640,7 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
                       </td>
                       <td className="msg-subject-cell">
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span>{msg.subject || "(No subject)"}</span>
+                          <span>{decodeHtmlEntities(msg.subject) || "(No subject)"}</span>
                           {msg.ai_category && (
                             <span
                               className={`status-badge ${
@@ -659,7 +660,7 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
                           )}
                         </div>
                         {msg.snippet && (
-                          <small className="msg-snippet">{msg.snippet}</small>
+                          <small className="msg-snippet">{decodeHtmlEntities(msg.snippet)}</small>
                         )}
                       </td>
                       <td className="msg-date-cell">
@@ -699,10 +700,10 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
                   <div className="mobile-card-header">
                     <div className="mobile-card-sender">
                       <span className="mobile-card-avatar">
-                        {(msg.sender?.raw || "?")[0].toUpperCase()}
+                        {(decodeHtmlEntities(msg.sender?.raw) || "?")[0].toUpperCase()}
                       </span>
                       <span className="mobile-card-sender-text">
-                        {msg.sender?.raw?.split("<")[0]?.trim() || msg.sender?.raw || "Unknown Sender"}
+                        {decodeHtmlEntities(msg.sender?.raw)?.split("<")[0]?.trim() || decodeHtmlEntities(msg.sender?.raw) || "Unknown Sender"}
                       </span>
                     </div>
                     <div className="mobile-card-meta">
@@ -722,7 +723,7 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
 
                   <div className="mobile-card-subject-row">
                     <span className="mobile-card-subject">
-                      {msg.subject || "(No subject)"}
+                      {decodeHtmlEntities(msg.subject) || "(No subject)"}
                     </span>
                     {msg.ai_category && (
                       <span
@@ -752,7 +753,7 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
 
                       {msg.snippet && (
                         <div className="mobile-card-snippet">
-                          <strong>Snippet:</strong> {msg.snippet}
+                          <strong>Snippet:</strong> {decodeHtmlEntities(msg.snippet)}
                         </div>
                       )}
 

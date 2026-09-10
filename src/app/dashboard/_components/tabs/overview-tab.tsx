@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { ConnectedAccount, EmailMessage, UserSettings } from "../dashboard-shell";
+import { decodeHtmlEntities } from "@/common/types/domain";
 
 type OverviewTabProps = {
   accounts: ConnectedAccount[];
@@ -414,10 +415,10 @@ export function OverviewTab({
                   {msg.sender?.raw?.[0]?.toUpperCase() || "M"}
                 </div>
                 <div className="message-sender-info">
-                  <strong>{msg.sender?.raw?.split("<")[0]?.trim() || msg.sender?.raw || "Unknown Sender"}</strong>
-                  <small>{msg.sender?.raw || ""}</small>
+                  <strong>{decodeHtmlEntities(msg.sender?.raw)?.split("<")[0]?.trim() || decodeHtmlEntities(msg.sender?.raw) || "Unknown Sender"}</strong>
+                  <small>{decodeHtmlEntities(msg.sender?.raw) || ""}</small>
                 </div>
-                <div className="message-subject">{msg.subject}</div>
+                <div className="message-subject">{decodeHtmlEntities(msg.subject) || "(No Subject)"}</div>
                 <div className="message-date">
                   {msg.received_at
                     ? new Date(msg.received_at).toLocaleDateString("en-US", {

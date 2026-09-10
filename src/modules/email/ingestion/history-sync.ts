@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptToken } from "@/common/crypto/encryption";
 import { getGoogleOAuthClient } from "@/modules/email/providers/gmail/gmail.client";
-import { performInitialSync } from "./initial-sync";
+import { performInitialSync, extractCleanEmailContent, decodeHtmlEntities } from "./initial-sync";
 
 type HistorySyncParams = {
   accountId: string;
@@ -122,13 +122,21 @@ export async function processHistorySync(
       const getHeader = (name: string) =>
         headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
 
-      const subject = getHeader("Subject") || "(No Subject)";
-      const fromHeader = getHeader("From") || "Unknown Sender";
+      const rawSubject = getHeader("Subject") || "(No Subject)";
+      const rawSender = getHeader("From") || "Unknown Sender";
       const toHeader = getHeader("To") || "";
       const dateHeader = getHeader("Date");
       const receivedAt = dateHeader ? new Date(dateHeader) : new Date();
 
-      const snippet = message.snippet || "";
+      // Decode HTML entities
+      const subject = decodeHtmlEntities(rawSubject);
+      const fromHeader = decodeHtmlEntities(rawSender);
+      const rawSnippet = message.snippet || "";
+      const snippet = decodeHtmlEntities(rawSnippet);
+
+      // Extract clean readable body text & raw HTML
+      const { bodyText, bodyHtml } = extractCleanEmailContent(message.payload, snippet);
+
       const dedupeKey = `gmail:${accountId}:${message.id}`;
 
       // Insert into email_messages
@@ -144,6 +152,8 @@ export async function processHistorySync(
             recipients: [{ raw: toHeader }],
             subject,
             snippet,
+            body_text: bodyText,
+            body_html: bodyHtml || null,
             received_at: receivedAt.toISOString(),
             ingested_at: new Date().toISOString(),
             dedupe_key: dedupeKey,

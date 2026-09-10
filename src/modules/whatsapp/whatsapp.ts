@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { decodeHtmlEntities } from '@/modules/email/ingestion/initial-sync';
 
 /**
  * WhatsApp Cloud Functions (2nd Gen) Client for Strike.
@@ -231,23 +232,30 @@ export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
   const isUrgent = (params.importance ?? 0) >= 0.8 || params.category?.toUpperCase() === 'URGENT';
   const headerBadge = isUrgent ? '🚨 *[URGENT EMAIL]*' : '⚡ *[IMPORTANT EMAIL]*';
 
+  // Decode HTML entities and strip redundant prefixes
+  const cleanSender = params.sender ? decodeHtmlEntities(params.sender) : undefined;
+  const cleanSubject = decodeHtmlEntities(params.subject || '(No Subject)');
+  let cleanSummary = decodeHtmlEntities(params.summaryText || '');
+  cleanSummary = cleanSummary.replace(/^(Executive\s+summary|Summary|Brief):\s*/i, '').trim();
+
   const bodyLines: string[] = [
     `${headerBadge}`,
     '',
-    params.sender ? `👤 *From:* ${params.sender}` : '',
-    `📌 *Subject:* ${params.subject}`,
+    cleanSender ? `👤 *From:* ${cleanSender}` : '',
+    `📌 *Subject:* ${cleanSubject}`,
     params.category ? `🏷️ *Category:* ${params.category.toUpperCase()}` : '',
     '',
     '📝 *Summary:*',
-    params.summaryText,
+    cleanSummary,
   ].filter(Boolean);
 
   if (params.actionItems && params.actionItems.length > 0) {
     bodyLines.push('');
     bodyLines.push('✅ *Action Items:*');
     for (const item of params.actionItems) {
-      const due = item.deadline ? ` _(Due: ${item.deadline})_` : '';
-      bodyLines.push(`• ${item.action}${due}`);
+      const cleanAction = decodeHtmlEntities(item.action);
+      const cleanDue = item.deadline && item.deadline !== 'None' ? ` _(Due: ${decodeHtmlEntities(item.deadline)})_` : '';
+      bodyLines.push(`• ${cleanAction}${cleanDue}`);
     }
   }
 
