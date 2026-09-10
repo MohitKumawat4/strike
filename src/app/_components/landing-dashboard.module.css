@@ -1,4 +1,5 @@
 .dashboard {
+  --forest: #1e2821; /* Core brand forest color */
   --ink: #20271f;
   --muted: #65705b;
   --line: #e5e7dd;
@@ -25,7 +26,7 @@
 .dashboard h3, .dashboard h4, .dashboard p { margin: 0; }
 .dashboard svg { flex-shrink: 0; }
 
-.sidebar { display: flex; flex-direction: column; padding: 24px 12px 0; background: #252e24; color: #f0f2e9; }
+.sidebar { display: flex; flex-direction: column; padding: 24px 12px 0; background: var(--forest, #1e2821); color: #f0f2e9; }
 .wordmark { display: flex; align-items: center; gap: 5px; padding: 0 10px 25px; font-size: 29px; font-weight: 650; letter-spacing: -1.4px; line-height: 1; }
 .wordmark > svg { color: #d7ff78; }
 .wordmarkDot { color: #d7ff78; }

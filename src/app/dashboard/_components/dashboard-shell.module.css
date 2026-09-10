@@ -1,5 +1,6 @@
 /* Scoped to the dashboard: authentication and public pages retain their own theme. */
 .shell {
+  --forest: #1e2821; /* Core brand forest color */
   --canvas: #f5f6f0;
   --surface: #fffefa;
   --surface-muted: #eef1e7;
@@ -54,6 +55,7 @@
   background: var(--canvas);
 }
 :global(html.dark) .shell {
+  --forest: #1e2821; /* Core brand forest color for dark mode */
   --canvas: #151d17;
   --surface: #1e2920;
   --surface-muted: #273328;
@@ -121,9 +123,10 @@
 .shell.shell :global(.dashboard-body) { min-height: calc(100svh - 72px); margin-left: 232px; width: calc(100% - 232px); }
 .shell.shell :global(.dashboard-main) { width: 100%; min-width: 0; overflow: visible; }
 .shell.shell :global(.dashboard-content) { padding: 31px 33px 20px; max-width: 1540px; }
-.shell.shell :global(.dashboard-sidebar) { position: fixed; inset: 0 auto 0 0; width: 232px; height: 100svh; max-height: 100svh; background: #253023; color: #edf2e5; border: 0; padding: 30px 17px 16px; z-index: 50; justify-content: flex-start; }
+.shell.shell :global(.dashboard-sidebar) { position: fixed; inset: 0 auto 0 0; width: 232px; height: 100svh; max-height: 100svh; background: var(--forest, #1e2821); color: #edf2e5; border: 0; padding: 30px 17px 16px; z-index: 50; justify-content: flex-start; }
 .shell .sidebarSurface {
-  --canvas: #253023;
+  --forest: #1e2821; /* Sidebar surface dark forest background */
+  --canvas: var(--forest);
   --surface: #303e2b;
   --surface-muted: #33422e;
   --surface-pill: #d6f58a;
@@ -134,7 +137,7 @@
   --line-subtle: #394632;
   --brand-plum: #d6f58a;
   --focus-ring: #d6f58a;
-  --sidebar: #253023;
+  --sidebar: var(--forest);
   --sidebar-muted: #b4c0a7;
   --sidebar-hover: #34422f;
   --sidebar-active-bg: #d6f58a;
@@ -143,7 +146,7 @@
   --sidebar-badge-text: #e0eaca;
   color-scheme: dark;
 }
-:global(html.dark) .shell .sidebarSurface { --canvas: #1c271c; --sidebar: #1c271c; }
+:global(html.dark) .shell .sidebarSurface { --canvas: var(--forest); --sidebar: var(--forest); }
 .shell.shell :global(.dashboard-sidebar) { background: var(--sidebar); }
 .shell.shell :global(.dashboard-brand) { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); font-size: 33px; line-height: 1; font-weight: 650; letter-spacing: -1.8px; text-decoration: none; }
 .shell.shell :global(.dashboard-brand > svg) { color: var(--brand-plum); width: 23px; height: 28px; }

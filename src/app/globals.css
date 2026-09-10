@@ -5,6 +5,9 @@
  * Faithfully matches the light mode reference dashboard variant
  */
 :root {
+  /* Brand Palette Tokens */
+  --forest: #1e2821;
+
   /* Canvas & Base Surface Tokens */
   --canvas: #f8f4e9;
   --surface: #ffffff;
@@ -78,6 +81,9 @@
  * Deep nightfall violet canvas, elevated frosted glass surfaces, and warm sand highlights
  */
 html.dark {
+  /* Brand Palette Tokens */
+  --forest: #1e2821;
+
   /* Canvas & Base Surfaces */
   --canvas: #0f0817;
   --surface: #1a0f26;
