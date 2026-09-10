@@ -339,6 +339,54 @@ export async function executeDeliveryStage(
 
   // 3. Dispatch WhatsApp alert if destination is configured
   if (destinationPhone && summaryRecord?.summary_text) {
+    // Proactively check if 24-hour WhatsApp messaging window is active
+    const prefs = (userSettings?.notification_preferences as Record<string, unknown>) || {};
+    const lastInboundAt = prefs.last_inbound_at ? new Date(prefs.last_inbound_at as string).getTime() : 0;
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    const isWindowActive = lastInboundAt > 0 && Date.now() - lastInboundAt < twentyFourHoursMs;
+
+    if (!isWindowActive) {
+      // Window is closed: Do NOT send freeform text message that Meta will silently drop.
+      // Instead, queue as DELIVERY_PENDING (stacked) so it will be flushed the moment user replies.
+      await supabase
+        .from("email_messages")
+        .update({ processing_status: "DELIVERY_PENDING" })
+        .eq("id", message.id);
+
+      // Proactively send 24h Greetings / Re-engagement Template if not sent in the last 12 hours
+      try {
+        const lastTemplateSentAt = prefs.last_template_sent_at
+          ? new Date(prefs.last_template_sent_at as string).getTime()
+          : 0;
+        const twelveHoursMs = 12 * 60 * 60 * 1000;
+
+        if (Date.now() - lastTemplateSentAt > twelveHoursMs) {
+          const { sendGreetings24hTemplate } = await import("@/modules/whatsapp/templates");
+          await sendGreetings24hTemplate(destinationPhone, "there", { user_id: message.user_id });
+
+          await supabase
+            .from("user_settings")
+            .update({
+              notification_preferences: {
+                ...prefs,
+                last_template_sent_at: new Date().toISOString(),
+                window_status: "CLOSED",
+              },
+              updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", message.user_id);
+        }
+      } catch (templateFallbackErr) {
+        console.warn("Failed to dispatch template prompt for closed window:", templateFallbackErr);
+      }
+
+      return {
+        success: true,
+        nextStage: null,
+        messageStatus: "DELIVERY_PENDING",
+      };
+    }
+
     try {
       const { sendStrikeEmailAlert } = await import("@/modules/whatsapp");
       const extractedActionItems = Array.isArray(summaryRecord.extracted_items)

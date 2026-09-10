@@ -93,7 +93,9 @@ export async function POST(request: NextRequest) {
         // 1. Process Status Callbacks (sent, delivered, read, failed)
         if (value.statuses && value.statuses.length > 0) {
           for (const status of value.statuses) {
-            console.log(`📋 WhatsApp Status update: ${status.status} for msg ${status.id} (${status.recipient_id})`);
+            console.log(
+              `📋 WhatsApp Status update: ${status.status} for msg ${status.id} (${status.recipient_id})`
+            );
 
             if (status.id) {
               const dbStatus =
@@ -116,6 +118,62 @@ export async function POST(request: NextRequest) {
                     : {}),
                 })
                 .eq('provider_message_id', status.id);
+
+              // If Meta reports failure due to expired 24h window (code 131047 / "24 hours")
+              if (dbStatus === 'failed') {
+                const isWindowExpiredError = status.errors?.some(
+                  (e) =>
+                    e.code === 131047 ||
+                    (e.message && e.message.toLowerCase().includes('24 hours'))
+                );
+
+                if (isWindowExpiredError) {
+                  // 1. Find message_id and convert status to DELIVERY_PENDING
+                  const { data: attempt } = await supabaseAdmin
+                    .from('delivery_attempts')
+                    .select('message_id')
+                    .eq('provider_message_id', status.id)
+                    .maybeSingle();
+
+                  if (attempt?.message_id) {
+                    await supabaseAdmin
+                      .from('email_messages')
+                      .update({ processing_status: 'DELIVERY_PENDING' })
+                      .eq('id', attempt.message_id);
+                  }
+
+                  // 2. Mark window as closed in user_settings
+                  const cleanPhone = (status.recipient_id || '').replace(/\D/g, '');
+                  const { data: allSettings } = await supabaseAdmin
+                    .from('user_settings')
+                    .select('id, user_id, whatsapp_destination, notification_preferences')
+                    .not('whatsapp_destination', 'is', null);
+
+                  const userSetting = (allSettings || []).find((s) => {
+                    const destDigits = (s.whatsapp_destination || '').replace(/\D/g, '');
+                    return (
+                      destDigits === cleanPhone ||
+                      destDigits.endsWith(cleanPhone) ||
+                      cleanPhone.endsWith(destDigits)
+                    );
+                  });
+
+                  if (userSetting) {
+                    const currentPrefs =
+                      (userSetting.notification_preferences as Record<string, unknown>) || {};
+                    await supabaseAdmin
+                      .from('user_settings')
+                      .update({
+                        notification_preferences: {
+                          ...currentPrefs,
+                          window_status: 'CLOSED',
+                        },
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq('id', userSetting.id);
+                  }
+                }
+              }
             }
           }
         }
