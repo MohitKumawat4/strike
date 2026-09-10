@@ -1,5 +1,7 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -44,6 +46,7 @@ export function ProcessingTab({
   userSettings = null,
 }: ProcessingTabProps) {
   const router = useRouter();
+  const [selectedStage, setSelectedStage] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -91,8 +94,8 @@ export function ProcessingTab({
       } else if (isImportant) {
         outcome = {
           label: hasWhatsApp ? "📱 WhatsApp Stream Active" : "⚡ Executive Brief Ready",
-          color: "#8b5cf6",
-          bg: "rgba(139, 92, 246, 0.12)",
+          color: "var(--info)",
+          bg: "var(--surface-muted)",
           type: hasWhatsApp ? "whatsapp" : "important",
         };
       } else if (m.ai_category === "promotional") {
@@ -207,7 +210,7 @@ export function ProcessingTab({
   }
 
   return (
-    <>
+    <div className={ui.page}>
       {/* Header */}
       <div className="dashboard-title-row" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
         <div>
@@ -349,70 +352,31 @@ export function ProcessingTab({
           </div>
         </div>
 
-        <div className="pipeline-flow" style={{ justifyContent: "space-between", gap: "10px" }}>
-          {/* Stage 1: Received */}
-          <div className="pipeline-stage-wrapper">
-            <div className="pipeline-stage pipeline-stage-active" style={{ minWidth: "150px" }}>
-              <Mail size={18} />
-              <span>1. Ingested</span>
-              <strong>{totalReceived}</strong>
-              <small style={{ fontSize: "10.5px", color: "var(--muted)", fontWeight: 500, marginTop: "2px" }}>
-                Raw incoming emails
-              </small>
-            </div>
-            <ArrowRight size={16} className="pipeline-arrow" />
-          </div>
-
-          {/* Stage 2: AI Triaged */}
-          <div className="pipeline-stage-wrapper">
-            <div className="pipeline-stage pipeline-stage-active" style={{ minWidth: "150px" }}>
-              <Sparkles size={18} />
-              <span>2. AI Screened</span>
-              <strong>{triagedCount}</strong>
-              <small style={{ fontSize: "10.5px", color: "var(--muted)", fontWeight: 500, marginTop: "2px" }}>
-                Priority & VIP rules
-              </small>
-            </div>
-            <ArrowRight size={16} className="pipeline-arrow" />
-          </div>
-
-          {/* Stage 3: Noise Suppressed */}
-          <div className="pipeline-stage-wrapper">
-            <div className="pipeline-stage pipeline-stage-active" style={{ minWidth: "150px", border: "1px solid rgba(217, 119, 6, 0.3)", background: "rgba(217, 119, 6, 0.05)" }}>
-              <Tag size={18} style={{ color: "#d97706" }} />
-              <span style={{ color: "#d97706" }}>3. Filtered Noise</span>
-              <strong style={{ color: "#d97706" }}>{noiseCount}</strong>
-              <small style={{ fontSize: "10.5px", color: "var(--muted)", fontWeight: 500, marginTop: "2px" }}>
-                Promos & newsletters
-              </small>
-            </div>
-            <ArrowRight size={16} className="pipeline-arrow" />
-          </div>
-
-          {/* Stage 4: High Importance */}
-          <div className="pipeline-stage-wrapper">
-            <div className="pipeline-stage pipeline-stage-active" style={{ minWidth: "150px", border: "1px solid rgba(139, 92, 246, 0.3)", background: "rgba(139, 92, 246, 0.05)" }}>
-              <Flame size={18} style={{ color: "#8b5cf6" }} />
-              <span style={{ color: "#8b5cf6" }}>4. High Priority</span>
-              <strong style={{ color: "#8b5cf6" }}>{importantCount}</strong>
-              <small style={{ fontSize: "10.5px", color: "var(--muted)", fontWeight: 500, marginTop: "2px" }}>
-                Briefs & action items
-              </small>
-            </div>
-            <ArrowRight size={16} className="pipeline-arrow" />
-          </div>
-
-          {/* Stage 5: WhatsApp Alerts */}
-          <div className="pipeline-stage-wrapper">
-            <div className="pipeline-stage pipeline-stage-active" style={{ minWidth: "150px", border: "1px solid rgba(34, 197, 94, 0.3)", background: "rgba(34, 197, 94, 0.05)" }}>
-              <Smartphone size={18} style={{ color: "#16a34a" }} />
-              <span style={{ color: "#16a34a" }}>5. WhatsApp Alerts</span>
-              <strong style={{ color: "#16a34a" }}>{whatsappDeliveredCount}</strong>
-              <small style={{ fontSize: "10.5px", color: "var(--muted)", fontWeight: 500, marginTop: "2px" }}>
-                {hasWhatsApp ? "Live stream active" : "Connect phone"}
-              </small>
-            </div>
-          </div>
+        <div className={ui.pipelineStages} aria-label="Explore processing stages">
+          {[
+            { label: "Ingested", count: totalReceived, icon: Mail, filter: "all" as const },
+            { label: "AI screened", count: triagedCount, icon: Sparkles, filter: "all" as const },
+            { label: "Filtered noise", count: noiseCount, icon: Tag, filter: "filtered" as const },
+            { label: "High priority", count: importantCount, icon: Flame, filter: "important" as const },
+            { label: "WhatsApp stream", count: whatsappDeliveredCount, icon: Smartphone, filter: "whatsapp" as const },
+          ].map((stage, index) => (
+            <button key={stage.label} type="button" aria-pressed={selectedStage === index} aria-controls="processing-stage-detail"
+              onClick={() => { setSelectedStage(index); setActivityFilter(stage.filter); setCurrentPage(1); }}>
+              <span className={ui.stageTop}><stage.icon size={18} /><small>0{index + 1}</small></span>
+              <strong>{stage.count.toLocaleString()}</strong><span>{stage.label}</span>
+              <span className={ui.stageTrack}><i style={{ width: `${totalReceived ? Math.min(100, stage.count / totalReceived * 100) : 0}%` }} /></span>
+            </button>
+          ))}
+        </div>
+        <div id="processing-stage-detail" className={ui.stageDetail} aria-live="polite">
+          <Sparkles size={17} />
+          <p>{[
+            "Every connected mailbox, in one place. The activity stream below shows your incoming email.",
+            "Explore the AI category, importance score, and reasoning by opening any email in the activity stream.",
+            "Routine and promotional messages stay available for review. The activity stream is now filtered to these quieter conversations.",
+            `Emails marked important or scored at least ${Math.round(threshold * 100)}% are shown below. Open a message to review its brief and next steps.`,
+            "This view includes priority emails routed toward WhatsApp. A configured connection does not confirm delivery; inspect a message for its recorded status.",
+          ][selectedStage]}</p>
         </div>
       </div>
 
@@ -484,9 +448,9 @@ export function ProcessingTab({
                 borderRadius: "8px",
                 fontSize: "12px",
                 fontWeight: 650,
-                border: activityFilter === "important" ? "1px solid #8b5cf6" : "1px solid var(--line)",
-                background: activityFilter === "important" ? "rgba(139, 92, 246, 0.12)" : "var(--surface)",
-                color: activityFilter === "important" ? "#8b5cf6" : "var(--muted)",
+                border: activityFilter === "important" ? "1px solid var(--info)" : "1px solid var(--line)",
+                background: activityFilter === "important" ? "var(--surface-muted)" : "var(--surface)",
+                color: activityFilter === "important" ? "var(--info)" : "var(--muted)",
                 cursor: "pointer",
               }}
             >
@@ -765,7 +729,7 @@ export function ProcessingTab({
           onClose={() => setSelectedMessage(null)}
         />
       )}
-    </>
+    </div>
   );
 }
 

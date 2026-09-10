@@ -1,9 +1,12 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Mail,
+  Search,
   Plus,
   CheckCircle2,
   AlertTriangle,
@@ -32,6 +35,13 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; className: stri
 
 export function AccountsTab({ accounts, email, onConnectGmail }: AccountsTabProps) {
   const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [connectionFilter, setConnectionFilter] = useState<"all" | "connected" | "attention">("all");
+  const connectedCount = accounts.filter((account) => account.connection_status === "connected").length;
+  const visibleAccounts = accounts.filter((account) =>
+    account.email_address.toLowerCase().includes(query.trim().toLowerCase()) &&
+    (connectionFilter === "all" || (connectionFilter === "connected" ? account.connection_status === "connected" : account.connection_status !== "connected"))
+  );
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -88,7 +98,7 @@ export function AccountsTab({ accounts, email, onConnectGmail }: AccountsTabProp
   }
 
   return (
-    <>
+    <div className={ui.page}>
       {/* Header */}
       <div className="dashboard-title-row">
         <div>
@@ -144,10 +154,20 @@ export function AccountsTab({ accounts, email, onConnectGmail }: AccountsTabProp
         </div>
       </div>
 
+      <div className={ui.viewToolbar}>
+        <div className={ui.segmented} aria-label="Filter mailbox connections">
+          {([ ["all", "All mailboxes", accounts.length], ["connected", "Connected", connectedCount], ["attention", "Needs attention", accounts.length - connectedCount] ] as const).map(([value, label, count]) => (
+            <button type="button" key={value} aria-pressed={connectionFilter === value} onClick={() => setConnectionFilter(value)}>{label}<span>{count}</span></button>
+          ))}
+        </div>
+        <label className={ui.search}><Search size={16} /><input aria-label="Search connected mailboxes" placeholder="Find a mailbox…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+      </div>
+      <div role="status" className={ui.statusText}>{statusMessage}</div>
+      {accounts.length > 0 && visibleAccounts.length === 0 && <div className={ui.empty}><Mail size={28} /><h2>No matching mailboxes</h2><p>Try another address or connection status.</p><button type="button" onClick={() => { setQuery(""); setConnectionFilter("all"); }}>Clear filters</button></div>}
       {/* Connected Accounts Grid */}
       {accounts.length > 0 ? (
         <div className="accounts-grid">
-          {accounts.map((account) => {
+          {visibleAccounts.map((account) => {
             const config = STATUS_CONFIG[account.connection_status] || STATUS_CONFIG.disconnected;
             const StatusIcon = config.icon;
             const isThisSyncing = syncingAccountId === account.id || syncingAccountId === "all";
@@ -206,6 +226,10 @@ export function AccountsTab({ accounts, email, onConnectGmail }: AccountsTabProp
                   </div>
                 </div>
 
+                <details className={ui.disclosure}>
+                  <summary>Mailbox details</summary>
+                  <dl><dt>Email address</dt><dd>{account.email_address}</dd><dt>Connection status</dt><dd>{config.label}</dd><dt>Last successful sync</dt><dd>{lastSync}</dd></dl>
+                </details>
                 {/* Card Actions Footer */}
                 <div
                   style={{
@@ -273,6 +297,6 @@ export function AccountsTab({ accounts, email, onConnectGmail }: AccountsTabProp
           title="Disconnect Mailbox"
         />
       )}
-    </>
+    </div>
   );
 }

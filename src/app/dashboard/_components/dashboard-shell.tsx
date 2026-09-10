@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import localFont from "next/font/local";
+import { DashboardBrand } from "./dashboard-brand";
+import styles from "./dashboard-shell.module.css";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
@@ -43,6 +46,8 @@ import { AnalyticsTab } from "./tabs/analytics-tab";
 import { TemplatesTab } from "./tabs/templates-tab";
 import { SettingsTab } from "./tabs/settings-tab";
 import { ErrorLogsTab } from "./tabs/error-logs-tab";
+
+const dashboardFont = localFont({ src: "../../_fonts/geist-latin.woff2", display: "swap", variable: "--font-dashboard" });
 
 /* ——————————————————————————————————————————————
  * Shared types exported for use by tab components
@@ -665,6 +670,38 @@ export function DashboardShell({
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [banner, setBanner] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+  const mobileNavToggleRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const drawer = mobileNavRef.current;
+    const toggle = mobileNavToggleRef.current;
+    const focusable = () => Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), [tabindex="0"]') ?? []);
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setIsMobileNavOpen(false); }
+      if (event.key === "Tab") {
+        const elements = focusable();
+        const first = elements[0];
+        const last = elements[elements.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    const breakpoint = window.matchMedia("(min-width: 769px)");
+    const onBreakpoint = () => { if (breakpoint.matches) setIsMobileNavOpen(false); };
+    document.addEventListener("keydown", onKeyDown);
+    breakpoint.addEventListener("change", onBreakpoint);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+      breakpoint.removeEventListener("change", onBreakpoint);
+      toggle?.focus();
+    };
+  }, [isMobileNavOpen]);
 
   /* Global Search State & Selected Email Drawer */
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -847,11 +884,12 @@ export function DashboardShell({
             onPeriodChange={handlePeriodChange}
             period={period}
             receivedCount={receivedCount}
+            onSelectMessage={setSelectedGlobalMessage}
             userSettings={currentUserSettings}
           />
         );
       case "messages":
-        return <MessagesTab accounts={accounts} messages={messages} />;
+        return <MessagesTab accounts={accounts} messages={messages} userSettings={currentUserSettings} onConnectGmail={handleConnectGmail} onManageWhatsApp={() => handleTabSelect("settings")} />;
       case "accounts":
         return (
           <AccountsTab
@@ -895,7 +933,7 @@ export function DashboardShell({
   }
 
   return (
-    <div className="dashboard-app">
+    <div className={`dashboard-app ${styles.shell} ${dashboardFont.variable}`}>
       {/* =========================================================================
           UNIFIED FULL-WIDTH STICKY TOP NAVBAR (CONNECTED TO STRIKE LOGO)
           ========================================================================= */}
@@ -905,16 +943,17 @@ export function DashboardShell({
           <button
             type="button"
             onClick={() => setIsMobileNavOpen(true)}
-            className="mobile-nav-toggle md:hidden"
+            className="mobile-nav-toggle"
+            ref={mobileNavToggleRef}
+            aria-expanded={isMobileNavOpen}
+            aria-controls="dashboard-mobile-navigation"
             aria-label="Open navigation drawer"
           >
             <Menu size={18} />
           </button>
 
-          <Link href="/" className="brand-lockup" title="Strike Home">
-            <span className="brand-mark"><Sparkles size={15} /></span>
-            <span className="brand-name">strike</span>
-          </Link>
+          <div className={styles.mobileBrand}><DashboardBrand /></div>
+          <div className={styles.breadcrumb}><span>Workspace</span><span>/</span><strong>{NAV_ITEMS.find((item) => item.key === activeTab)?.label ?? "Error logs"}</strong></div>
         </div>
 
         {/* Center: Global Search Bar & Command Palette */}
@@ -957,13 +996,19 @@ export function DashboardShell({
           ========================================================================= */}
       <div className="dashboard-body">
         {/* Desktop Sidebar Navigation */}
-        <aside className="dashboard-sidebar">
+        <aside className={`dashboard-sidebar ${styles.sidebarSurface}`}>
+          <div className={styles.sidebarIntro}>
+            <DashboardBrand />
+            <div className={styles.workspaceIdentity}><span>{initials}</span><div><strong>Your workspace</strong><small>Personal email intelligence</small></div></div>
+          </div>
+          <p className={styles.navLabel}>YOUR DAILY SPACE</p>
           <nav aria-label="Dashboard navigation" className="sidebar-nav">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               return (
                 <button
                   className={`nav-item ${activeTab === item.key ? "active" : ""}`}
+                  aria-current={activeTab === item.key ? "page" : undefined}
                   key={item.key}
                   onClick={() => handleTabSelect(item.key)}
                   type="button"
@@ -980,6 +1025,7 @@ export function DashboardShell({
           </nav>
 
           {/* Sidebar Footer with Legal & User Profile */}
+          <div className={styles.sidebarConnection}><Mail size={16} /><div><strong>{accounts.length} connected mailbox{accounts.length !== 1 ? "es" : ""}</strong><small>Your inbox, in the loop.</small></div><span /></div>
           <div className="sidebar-footer">
             <div className="sidebar-legal">
               <Link href="/privacy" className="sidebar-legal-link">Privacy</Link>
@@ -998,6 +1044,7 @@ export function DashboardShell({
                 disabled={isSigningOut}
                 className="sidebar-signout-btn"
                 title="Sign out"
+                aria-label="Sign out"
               >
                 <LogOut size={15} />
               </button>
@@ -1005,85 +1052,23 @@ export function DashboardShell({
           </div>
         </aside>
 
-        {/* Mobile Slide-Over Navigation Drawer */}
+        {/* Mobile navigation retains the same destinations and account actions. */}
         {isMobileNavOpen && (
           <div className="mobile-nav-overlay" onClick={() => setIsMobileNavOpen(false)}>
-            <div className="mobile-nav-drawer" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
-                <Link href="/" className="flex items-center gap-2 font-extrabold text-lg text-[var(--ink)] no-underline" title="Strike Home">
-                  <div className="w-7 h-7 rounded-lg bg-[var(--brand-plum)] text-white flex items-center justify-center text-xs">
-                    <Sparkles size={14} />
-                  </div>
-                  <span>strike</span>
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => setIsMobileNavOpen(false)}
-                  className="w-8 h-8 rounded-lg border border-[var(--line)] flex items-center justify-center text-[var(--muted)]"
-                  aria-label="Close drawer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <nav className="space-y-1 flex-1">
+            <div id="dashboard-mobile-navigation" ref={mobileNavRef} role="dialog" aria-modal="true" aria-label="Dashboard navigation" className={`mobile-nav-drawer ${styles.sidebarSurface}`} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.mobileDrawerHeading}><DashboardBrand /><button type="button" onClick={() => setIsMobileNavOpen(false)} className="icon-button" aria-label="Close drawer"><X size={20} /></button></div>
+              <div className={styles.workspaceIdentity}><span>{initials}</span><div><strong>Your workspace</strong><small>Personal email intelligence</small></div></div>
+              <p className={styles.navLabel}>YOUR DAILY SPACE</p>
+              <nav className="sidebar-nav" aria-label="Mobile dashboard navigation">
                 {NAV_ITEMS.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.key;
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => handleTabSelect(item.key)}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl text-sm font-bold transition-colors ${
-                        isActive
-                          ? "bg-[var(--surface-pill)] text-[var(--brand-plum)]"
-                          : "text-[var(--muted)] hover:bg-[var(--surface-muted)]"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon size={18} />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.count && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink)]">
-                          {receivedCount}
-                        </span>
-                      )}
-                    </button>
-                  );
+                  return <button key={item.key} type="button" onClick={() => handleTabSelect(item.key)} className={`nav-item ${isActive ? "active" : ""}`} aria-current={isActive ? "page" : undefined}><Icon size={18} /><span>{item.label}</span>{item.count && <span className="nav-count">{receivedCount}</span>}</button>;
                 })}
               </nav>
-
-              <div className="pt-4 mt-4 border-t border-[var(--line)] space-y-3">
-                <div className="flex flex-col gap-1 text-xs text-[var(--muted)] font-semibold">
-                  <Link href="/privacy" className="py-1 hover:text-[var(--ink)]">
-                    Privacy Policy
-                  </Link>
-                  <Link href="/terms" className="py-1 hover:text-[var(--ink)]">
-                    Terms of Service
-                  </Link>
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-[var(--line)]">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-full bg-[var(--surface-pill)] text-[var(--brand-plum)] flex items-center justify-center font-bold text-xs">
-                      {initials}
-                    </span>
-                    <div className="text-xs font-bold text-[var(--ink)] truncate max-w-[140px]">
-                      {email}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={signOut}
-                    disabled={isSigningOut}
-                    className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
-                    title="Sign out"
-                  >
-                    <LogOut size={16} />
-                  </button>
-                </div>
+              <div className="sidebar-footer">
+                <div className="sidebar-legal"><Link href="/privacy" className="sidebar-legal-link">Privacy Policy</Link><span className="sidebar-legal-dot">·</span><Link href="/terms" className="sidebar-legal-link">Terms of Service</Link></div>
+                <div className="sidebar-user-row"><span className="sidebar-user-avatar">{initials}</span><div className="sidebar-user-info"><span className="sidebar-user-name">{email ? email.split("@")[0] : "User"}</span><span className="sidebar-user-email">{email}</span></div><button type="button" onClick={signOut} disabled={isSigningOut} className="sidebar-signout-btn" title="Sign out" aria-label="Sign out"><LogOut size={16} /></button></div>
               </div>
             </div>
           </div>

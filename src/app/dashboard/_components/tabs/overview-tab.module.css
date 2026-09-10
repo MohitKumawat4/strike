@@ -1,0 +1,709 @@
+.overview {
+  min-width: 0;
+  color: var(--ink);
+  animation: enter 350ms ease-out both;
+}
+:where(.overview) button {
+  font: inherit;
+  cursor: pointer;
+}
+.overview button:disabled {
+  cursor: default;
+}
+.overview button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+:where(.overview) h1,
+:where(.overview) h2,
+:where(.overview) h3,
+:where(.overview) p {
+  margin: 0;
+}
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 30px;
+}
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--eyebrow);
+  font-size: 9px;
+  font-weight: 550;
+  letter-spacing: 1.45px;
+  line-height: 1.6;
+}
+.liveDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.titleRow h1 {
+  font-size: clamp(28px, 2.65vw, 40px);
+  line-height: 1.16;
+  letter-spacing: -1.65px;
+  font-weight: 500;
+  margin-top: 10px;
+}
+.titleRow h1 span {
+  color: var(--heading-accent);
+}
+.titleRow .subtitle {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin-top: 10px;
+}
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+  padding-bottom: 2px;
+}
+.periodButton,
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 6px;
+  padding: 11px 14px;
+  font-size: 11px !important;
+  font-weight: 550 !important;
+  min-height: 42px;
+  white-space: nowrap;
+  transition:
+    background 160ms,
+    border-color 160ms,
+    transform 160ms;
+}
+.periodButton {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+.periodButton:hover {
+  border-color: var(--focus-ring);
+  background: var(--surface-muted);
+}
+.primaryButton {
+  background: var(--lime);
+  color: #263321;
+  border: 1px solid #bbd886;
+}
+.primaryButton:hover {
+  background: #e1ffa5;
+  transform: translateY(-1px);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.metric {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 2px 3px #17261a03;
+}
+.priorityMetric {
+  background: var(--priority-surface);
+  border-color: var(--priority-line);
+}
+.metricTop {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  min-height: 30px;
+}
+.metricIcon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+  color: var(--eyebrow);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.priorityMetric .metricIcon {
+  background: var(--lime);
+  color: #475c30;
+  border-color: #bcd88d;
+}
+.metricTrend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 8px;
+  color: var(--muted);
+}
+.metricTrend i {
+  height: 4px;
+  width: 4px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.metricValueRow {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.numberValue {
+  font-size: 39px;
+  letter-spacing: -1.8px;
+  line-height: 1;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.textValue {
+  font-size: clamp(23px, 2.25vw, 33px);
+  letter-spacing: -1.4px;
+  line-height: 1.2;
+  font-weight: 500;
+}
+.metricBadge {
+  font-size: 8px;
+  border-radius: 3px;
+  background: var(--surface-muted);
+  padding: 3px 5px;
+  color: var(--muted);
+}
+.metric .metricDetail {
+  margin-top: 12px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 23px 23px 20px;
+}
+.panelHeader h2 {
+  font-size: 17px;
+  line-height: 1.3;
+  letter-spacing: -0.5px;
+  font-weight: 550;
+  margin-top: 6px;
+}
+.countBadge,
+.healthBadge {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+  border-radius: 4px;
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.operationsHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 31px 0 14px;
+}
+.operationsHeading > span:last-child {
+  color: var(--muted);
+  font-size: 9px;
+}
+.operationsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 20px;
+}
+.healthBadge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--success);
+  background: var(--surface-muted);
+}
+.healthPanel {
+  display: flex;
+  flex-direction: column;
+}
+.healthVisual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 164px;
+  position: relative;
+  isolation: isolate;
+  padding: 0 32px;
+}
+.healthGrid {
+  position: absolute;
+  inset: 5px 20px;
+  z-index: -1;
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 13px 13px;
+  mask-image: radial-gradient(ellipse, #000, transparent 72%);
+}
+.flowLines {
+  position: absolute;
+  left: 50px;
+  right: 50px;
+  width: calc(100% - 100px);
+  height: 80px;
+  z-index: -1;
+}
+.flowLines path {
+  fill: none;
+  stroke: var(--chart-line);
+  stroke-width: 1;
+}
+.flowLines path:nth-child(2) {
+  opacity: 0.4;
+}
+.flowLines path:nth-child(3) {
+  opacity: 0.35;
+  stroke-dasharray: 3 5;
+}
+.flowEndpoint {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--eyebrow);
+  position: relative;
+}
+.flowEndpoint > span {
+  position: absolute;
+  top: 53px;
+  font-size: 7px;
+  letter-spacing: 1px;
+}
+.latency {
+  position: relative;
+  width: 91px;
+  height: 91px;
+  border: 1px solid var(--priority-line);
+  background: var(--surface);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow:
+    0 0 0 9px var(--surface),
+    0 0 0 10px var(--line-subtle),
+    0 0 0 22px var(--surface),
+    0 0 0 23px var(--line-subtle);
+}
+.latency > svg {
+  color: var(--eyebrow);
+}
+.latency strong {
+  font-size: 21px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.6px;
+}
+.latency > span {
+  color: var(--muted);
+  font-size: 6px;
+  letter-spacing: 0.8px;
+}
+.telemetryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 18px 23px 0;
+  margin-top: auto;
+}
+.telemetryGrid > div {
+  background: var(--surface-muted);
+  border: 1px solid var(--line-subtle);
+  border-radius: 5px;
+  padding: 12px 10px;
+  min-width: 0;
+}
+.telemetryGrid span {
+  display: block;
+  font-size: 7px;
+  color: var(--eyebrow);
+  letter-spacing: 0.8px;
+}
+.telemetryGrid strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 550;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+.telemetryGrid small {
+  display: block;
+  font-size: 8px;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.6;
+}
+.healthLegend {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 9px;
+  border-top: 1px solid var(--line);
+  margin: 19px 23px 0;
+  padding: 16px 0;
+}
+.healthLegend > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 8px;
+}
+.healthLegend i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.healthLegend > span:nth-child(2) i {
+  background: var(--chart-line);
+}
+.panelDescription {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+  padding: 0 23px;
+}
+.accountsPanel {
+  display: flex;
+  flex-direction: column;
+}
+.connectionSteps {
+  padding: 6px 23px 0;
+}
+.connectionStep {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line-subtle);
+  background: transparent;
+  text-align: left;
+  color: var(--ink);
+  padding: 15px 0;
+  min-width: 0;
+}
+button.connectionStep:not(:disabled):hover {
+  background: var(--surface-muted);
+}
+.connectionStep > svg {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.stepNumber {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  font-family: monospace;
+  font-size: 9px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--eyebrow);
+  flex-shrink: 0;
+}
+.stepContent {
+  display: block;
+  min-width: 0;
+}
+.stepContent strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 550;
+}
+.stepContent small {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.connectButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 18px 23px 23px;
+  padding: 11px;
+  min-height: 41px;
+  width: calc(100% - 46px);
+  font-size: 10px !important;
+  color: var(--ink);
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.connectButton:hover {
+  border-color: var(--focus-ring);
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (min-width: 1600px) {
+  .metric {
+    padding: 22px;
+  }
+  .metricTop {
+    font-size: 12px;
+  }
+}
+@media (max-width: 1200px) {
+  .titleRow {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metricValueRow {
+    margin-top: 14px;
+  }
+  .panelHeader {
+    padding: 19px 18px 16px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .panelHeader h2 {
+    font-size: 16px;
+  }
+  .operationsGrid {
+    gap: 16px;
+  }
+  .telemetryGrid {
+    padding-left: 16px;
+    padding-right: 16px;
+    gap: 5px;
+  }
+  .telemetryGrid > div {
+    padding: 10px 7px;
+  }
+  .telemetryGrid strong {
+    font-size: 10px;
+  }
+  .connectionSteps {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .healthVisual {
+    padding: 0 24px;
+  }
+}
+@media (max-width: 1000px) and (min-width: 769px) {
+  .operationsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 768px) {
+  .titleRow {
+    margin-bottom: 22px;
+    gap: 18px;
+  }
+  .titleRow h1 {
+    font-size: 32px;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .metrics {
+    gap: 12px;
+  }
+  .metric {
+    padding: 15px;
+  }
+  .operationsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .telemetryGrid strong {
+    font-size: 12px;
+  }
+  .telemetryGrid small {
+    font-size: 10px;
+  }
+  .telemetryGrid {
+    gap: 10px;
+    padding-top: 25px;
+  }
+  .telemetryGrid > div {
+    padding: 13px;
+  }
+}
+@media (max-width: 600px) {
+  .titleRow h1 {
+    font-size: 29px;
+    letter-spacing: -1.2px;
+  }
+  .titleRow .subtitle {
+    font-size: 11px;
+    max-width: 300px;
+  }
+  .eyebrow {
+    font-size: 8px;
+    letter-spacing: 1.1px;
+  }
+  .toolbar {
+    width: 100%;
+    gap: 8px;
+  }
+  .toolbar > button {
+    flex: 1;
+    font-size: 10px !important;
+    padding: 10px;
+    min-height: 44px;
+  }
+  .metric {
+    padding: 13px 12px;
+  }
+  .metricTop {
+    flex-wrap: wrap;
+    font-size: 10px;
+    gap: 7px;
+  }
+  .metricTrend {
+    width: 100%;
+    margin: 2px 0 0;
+    font-size: 8px;
+  }
+  .metricIcon {
+    height: 26px;
+    width: 26px;
+  }
+  .metricIcon svg {
+    width: 14px;
+  }
+  .numberValue {
+    font-size: 34px;
+  }
+  .textValue {
+    font-size: 25px;
+  }
+  .metric .metricDetail {
+    font-size: 9px;
+  }
+  .panelHeader {
+    flex-wrap: nowrap;
+  }
+  .panelHeader h2 {
+    font-size: 15px;
+  }
+  .countBadge,
+  .healthBadge {
+    font-size: 8px;
+    padding: 5px 6px;
+  }
+  .operationsHeading > span:last-child {
+    font-size: 8px;
+  }
+  .healthLegend {
+    margin-left: 17px;
+    margin-right: 17px;
+    font-size: 8px;
+  }
+  .telemetryGrid {
+    gap: 5px;
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+  .telemetryGrid > div {
+    padding: 11px 8px;
+  }
+  .telemetryGrid strong {
+    font-size: 10px;
+  }
+  .telemetryGrid small {
+    font-size: 8px;
+  }
+  .telemetryGrid span {
+    font-size: 6px;
+    letter-spacing: 0.5px;
+  }
+  .stepContent strong {
+    font-size: 12px;
+  }
+  .stepContent small {
+    font-size: 10px;
+  }
+  .connectButton {
+    font-size: 11px !important;
+    min-height: 44px;
+  }
+  .panelDescription {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+@media (max-width: 360px) {
+  .metricTop {
+    font-size: 9px;
+    gap: 5px;
+  }
+  .textValue {
+    font-size: 22px;
+  }
+  .panelHeader {
+    flex-wrap: wrap;
+  }
+  .metricBadge {
+    font-size: 7px;
+  }
+  .metricValueRow {
+    gap: 5px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .overview {
+    animation: none;
+  }
+  .overview * {
+    transition: none !important;
+  }
+}

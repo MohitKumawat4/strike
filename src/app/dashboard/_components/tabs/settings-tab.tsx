@@ -1,5 +1,7 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useEffect, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
 import { useRouter } from "next/navigation";
@@ -373,7 +375,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
   const initials = email.slice(0, 2).toUpperCase();
 
   return (
-    <>
+    <div className={ui.page}>
       {/* Header */}
       <div className="dashboard-title-row">
         <div>
@@ -385,8 +387,11 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         </div>
       </div>
 
+      <nav className={ui.sectionNav} aria-label="Settings sections">
+        {[["settings-profile", "Profile"], ["settings-appearance", "Appearance"], ["settings-preferences", "Processing"], ["settings-rules", "AI rules"], ["whatsapp-settings", "WhatsApp"], ["settings-notifications", "Notifications"]].map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+      </nav>
       {/* Profile Card */}
-      <div className="panel settings-section">
+      <div className="panel settings-section" id="settings-profile">
         <div className="settings-section-header">
           <User size={18} />
           <h2>Profile</h2>
@@ -401,7 +406,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       </div>
 
       {/* Appearance */}
-      <div className="panel settings-section">
+      <div className="panel settings-section" id="settings-appearance">
         <div className="settings-section-header">
           <Sun size={18} />
           <h2>Appearance</h2>
@@ -413,6 +418,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </div>
           <div className="theme-toggle-group">
             <button
+              aria-pressed={resolvedTheme === "light"}
               className={`theme-toggle-btn ${resolvedTheme === "light" ? "theme-toggle-active" : ""}`}
               onClick={() => setTheme("light")}
               type="button"
@@ -421,6 +427,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               Light
             </button>
             <button
+              aria-pressed={resolvedTheme === "dark"}
               className={`theme-toggle-btn ${resolvedTheme === "dark" ? "theme-toggle-active" : ""}`}
               onClick={() => setTheme("dark")}
               type="button"
@@ -433,7 +440,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       </div>
 
       {/* Processing Preferences */}
-      <div className="panel settings-section">
+      <div className="panel settings-section" id="settings-preferences">
         <div className="settings-section-header">
           <Settings2 size={18} />
           <h2>Processing Preferences</h2>
@@ -447,6 +454,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </div>
           <div className="settings-slider-group">
             <input
+              aria-label="Importance threshold"
               className="settings-slider"
               max="1"
               min="0"
@@ -459,6 +467,12 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </div>
         </div>
 
+        <div className={ui.policyPreview}>
+          <span className={ui.overline}>YOUR PRIORITY LENS</span>
+          <div className={ui.policyScale}><i style={{ width: `${importanceThreshold * 100}%` }} /><span style={{ left: `${importanceThreshold * 100}%` }} /></div>
+          <div className={ui.policyLabels}><span>More inclusive</span><strong>{(importanceThreshold * 100).toFixed(0)}% threshold</strong><span>More selective</span></div>
+          <p>{importanceThreshold < .4 ? "A broader range of emails can qualify for priority attention." : importanceThreshold < .75 ? "Keep a balanced focus on emails with stronger importance signals." : "Focus on emails with the strongest importance scores."} Your VIP and custom rules also inform triage.</p>
+        </div>
         {/* Retention Days */}
         <div className="settings-row">
           <div className="settings-row-label">
@@ -467,6 +481,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </div>
           <div className="settings-input-group">
             <input
+              aria-label="Raw body retention in days"
               className="settings-number-input"
               max="365"
               min="1"
@@ -480,7 +495,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       </div>
 
       {/* Custom AI Triage & Priority Rules */}
-      <div className="panel settings-section">
+      <div className="panel settings-section" id="settings-rules">
         <div className="settings-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Sliders size={18} />
@@ -975,7 +990,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       </div>
 
       {/* Notifications */}
-      <div className="panel settings-section">
+      <div className="panel settings-section" id="settings-notifications">
         <div className="settings-section-header">
           <Shield size={18} />
           <h2>Notifications</h2>
@@ -987,6 +1002,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </div>
           <label className="settings-toggle">
             <input
+              aria-label="Notify me about important emails"
               checked={notifyImportant}
               onChange={(e) => setNotifyImportant(e.target.checked)}
               type="checkbox"
@@ -1001,6 +1017,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </div>
           <label className="settings-toggle">
             <input
+              aria-label="Notify me about processing failures"
               checked={notifyFailures}
               onChange={(e) => setNotifyFailures(e.target.checked)}
               type="checkbox"
@@ -1011,7 +1028,8 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       </div>
 
       {/* Save Button */}
-      <div className="settings-save-row">
+      <div className={`settings-save-row ${ui.saveDock}`}>
+        <div><strong>Your workspace, your way.</strong><span>Save to apply your processing and notification preferences.</span></div>
         <button
           className="primary-button"
           disabled={isSaving}
@@ -1044,6 +1062,6 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </button>
         </div>
       </div>
-    </>
+    </div>
   );
 }

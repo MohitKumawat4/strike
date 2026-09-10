@@ -1,5 +1,7 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useState } from "react";
 import {
   FileText,
@@ -19,6 +21,9 @@ import {
 export function TemplatesTab() {
   const [activeTemplate, setActiveTemplate] = useState<"triage" | "summary" | "heuristic" | "whatsapp_greetings">("triage");
 
+  const [inspectorView, setInspectorView] = useState<"instructions" | "schema" | "both">("both");
+  const [copyStatus, setCopyStatus] = useState("");
+  const [previewName, setPreviewName] = useState("Alex");
   const templates = {
     triage: {
       title: "Email Triage & Scoring Prompt",
@@ -101,158 +106,45 @@ Buttons:
 
   const current = templates[activeTemplate];
 
+  async function copyTemplate() {
+    try {
+      await navigator.clipboard.writeText(inspectorView === "instructions" ? current.promptText : inspectorView === "schema" ? current.outputSchema : `${current.promptText}\n\n${current.outputSchema}`);
+      setCopyStatus("Copied to clipboard");
+    } catch { setCopyStatus("Could not copy. Select the text below to copy it manually."); }
+  }
+
+  const templateNavigation = [
+    { key: "triage", label: "Email triage", note: "Classification & scoring", icon: Sparkles },
+    { key: "summary", label: "Executive summary", note: "Briefs & action items", icon: FileText },
+    { key: "heuristic", label: "Rule engine", note: "Deterministic fallback", icon: Zap },
+    { key: "whatsapp_greetings", label: "WhatsApp greetings", note: "Morning briefing template", icon: MessageSquare },
+  ] as const;
+
   return (
-    <>
-      {/* Header */}
-      <div className="dashboard-title-row">
-        <div>
-          <p className="eyebrow">INTELLIGENCE ENGINE</p>
-          <h1>AI Prompt & Message Templates</h1>
-          <p className="dashboard-subtitle">
-            Inspect active AI intelligence prompts and Meta WhatsApp message templates.
-          </p>
-        </div>
+    <div className={ui.page}>
+      <div className="dashboard-title-row"><div><p className="eyebrow">INTELLIGENCE ENGINE</p><h1>Behind every brief.</h1><p className="dashboard-subtitle">Explore the prompts, rules, and message templates that shape your inbox.</p></div><span className={ui.tag}><Code2 size={14} /> Template library</span></div>
+      <div className={ui.inspectorLayout}>
+        <nav className={ui.templateNav} aria-label="Choose a template">
+          <p className={ui.overline}>THE COLLECTION / 04</p>
+          {templateNavigation.map((item) => <button type="button" key={item.key} aria-pressed={activeTemplate === item.key} aria-controls="template-inspector" onClick={() => { setActiveTemplate(item.key); setCopyStatus(""); }}><item.icon size={19} /><span><strong>{item.label}</strong><small>{item.note}</small></span><span className={ui.navArrow}>↗</span></button>)}
+          <div className={ui.inspectorNote}><Shield size={19} /><p>Understand the instructions behind every classification. Inspect or copy a template to take a closer look.</p></div>
+        </nav>
+        <section className={ui.inspector} id="template-inspector" aria-label={current.title}>
+          <header className={ui.inspectorHeader}><div><span className={ui.overline}>{current.version}</span><h2>{current.title}</h2><p>{current.description}</p></div><Code2 size={25} /></header>
+          <div className={ui.inspectorToolbar}>
+            <div className={ui.segmented} aria-label="Template content">
+              {([ ["instructions", "Instructions"], ["schema", "Output schema"], ["both", "Both"] ] as const).map(([value,label]) => <button type="button" key={value} aria-pressed={inspectorView === value} onClick={() => { setInspectorView(value); setCopyStatus(""); }}>{label}</button>)}
+            </div>
+            <button className={ui.quietButton} type="button" onClick={copyTemplate}>{copyStatus === "Copied to clipboard" ? <CheckCircle2 size={14} /> : <FileText size={14} />} Copy {inspectorView === "both" ? "template" : inspectorView}</button>
+          </div>
+          <span className={ui.copyStatus} role="status">{copyStatus}</span>
+          <div className={ui.codeSections}>
+            {inspectorView !== "schema" && <section><h3><Code2 size={14} /> System instructions</h3><pre tabIndex={0}>{current.promptText}</pre></section>}
+            {inspectorView !== "instructions" && <section><h3><Tag size={14} /> Output schema</h3><pre tabIndex={0}>{current.outputSchema}</pre></section>}
+          </div>
+          {activeTemplate === "whatsapp_greetings" && <div className={ui.templatePreview}><div><span className={ui.overline}>PERSONALIZE THE PREVIEW</span><label>Display name<input value={previewName} maxLength={60} onChange={(event) => setPreviewName(event.target.value)} placeholder="Your name" /></label><small>Illustrative preview · no message is sent</small></div><pre>{current.promptText.replaceAll("{{1}}", previewName || "Your name")}</pre></div>}
+        </section>
       </div>
-
-      {/* Template Selectors */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 24 }}>
-        <article
-          className={`panel ${activeTemplate === "triage" ? "account-card-expanded" : ""}`}
-          onClick={() => setActiveTemplate("triage")}
-          style={{ cursor: "pointer", padding: 18 }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-            <div className="account-card-icon" style={{ background: "var(--brand-plum)", color: "var(--brand-plum-text)" }}>
-              <Sparkles size={18} />
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Triage & Scoring</h3>
-              <small className="muted-text">Category & Urgency</small>
-            </div>
-          </div>
-          <p style={{ fontSize: "0.82rem", color: "var(--muted)", margin: 0 }}>
-            4-tier categorization model assigning importance from 0.00 to 1.00.
-          </p>
-        </article>
-
-        <article
-          className={`panel ${activeTemplate === "summary" ? "account-card-expanded" : ""}`}
-          onClick={() => setActiveTemplate("summary")}
-          style={{ cursor: "pointer", padding: 18 }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-            <div className="account-card-icon" style={{ background: "var(--brand-plum)", color: "var(--brand-plum-text)" }}>
-              <FileText size={18} />
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Executive Summary</h3>
-              <small className="muted-text">Summaries & Action Items</small>
-            </div>
-          </div>
-          <p style={{ fontSize: "0.82rem", color: "var(--muted)", margin: 0 }}>
-            Extracts executive digests and structured to-do items.
-          </p>
-        </article>
-
-        <article
-          className={`panel ${activeTemplate === "heuristic" ? "account-card-expanded" : ""}`}
-          onClick={() => setActiveTemplate("heuristic")}
-          style={{ cursor: "pointer", padding: 18 }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-            <div className="account-card-icon" style={{ background: "var(--brand-plum)", color: "var(--brand-plum-text)" }}>
-              <Zap size={18} />
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Rule Engine</h3>
-              <small className="muted-text">Instant Fallback Rules</small>
-            </div>
-          </div>
-          <p style={{ fontSize: "0.82rem", color: "var(--muted)", margin: 0 }}>
-            Zero-latency deterministic rule matching for keywords and noise.
-          </p>
-        </article>
-
-        <article
-          className={`panel ${activeTemplate === "whatsapp_greetings" ? "account-card-expanded" : ""}`}
-          onClick={() => setActiveTemplate("whatsapp_greetings")}
-          style={{ cursor: "pointer", padding: 18 }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-            <div className="account-card-icon" style={{ background: "var(--brand-plum)", color: "var(--brand-plum-text)" }}>
-              <MessageSquare size={18} />
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: "0.95rem" }}>WhatsApp Greetings</h3>
-              <small className="muted-text">24h Window Activation</small>
-            </div>
-          </div>
-          <p style={{ fontSize: "0.82rem", color: "var(--muted)", margin: 0 }}>
-            Daily morning brief with quick-reply buttons to unlock 24h streaming.
-          </p>
-        </article>
-      </div>
-
-      {/* Active Template Inspector Panel */}
-      <div className="panel" style={{ padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <div>
-            <h2 style={{ margin: "0 0 4px 0", fontSize: "1.15rem" }}>{current.title}</h2>
-            <p className="muted-text" style={{ margin: 0, fontSize: "0.85rem" }}>
-              {current.description}
-            </p>
-          </div>
-          <span className="status-badge badge-success" style={{ fontSize: "0.75rem" }}>
-            Active ({current.version})
-          </span>
-        </div>
-
-        {/* Prompt Instructions */}
-        <div style={{ marginBottom: 20 }}>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: "0.85rem", color: "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>
-            <Code2 size={14} /> System Instructions
-          </h4>
-          <pre
-            style={{
-              padding: 16,
-              background: "var(--surface-muted)",
-              border: "1px solid var(--line)",
-              borderRadius: 10,
-              fontSize: "0.8rem",
-              lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
-              color: "var(--ink)",
-              margin: 0,
-              fontFamily: "monospace",
-            }}
-          >
-            {current.promptText}
-          </pre>
-        </div>
-
-        {/* Expected JSON Schema */}
-        <div>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: "0.85rem", color: "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>
-            <Tag size={14} /> Output JSON Schema
-          </h4>
-          <pre
-            style={{
-              padding: 16,
-              background: "var(--surface-muted)",
-              border: "1px solid var(--line)",
-              borderRadius: 10,
-              fontSize: "0.8rem",
-              lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
-              color: "var(--brand-plum-text)",
-              margin: 0,
-              fontFamily: "monospace",
-            }}
-          >
-            {current.outputSchema}
-          </pre>
-        </div>
-      </div>
-    </>
+    </div>
   );
 }

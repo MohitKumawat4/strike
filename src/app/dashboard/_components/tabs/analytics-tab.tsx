@@ -1,5 +1,7 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useMemo } from "react";
 import {
   BarChart,
@@ -139,7 +141,7 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
   const avgLatency = 0; // Placeholder until timing data exists
 
   return (
-    <>
+    <div className={ui.page}>
       {/* Header */}
       <div className="dashboard-title-row">
         <div>
@@ -373,6 +375,6 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -23,11 +25,16 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-import type { ConnectedAccount, EmailMessage } from "../dashboard-shell";
+import type { ConnectedAccount, EmailMessage, UserSettings } from "../dashboard-shell";
 import { MessageDetailDrawer } from "../message-detail-drawer";
 import { decodeHtmlEntities, cleanSummaryText } from "@/common/types/domain";
 
+import { InboxWorkspace } from "./inbox-workspace";
+
 type MessagesTabProps = {
+  userSettings?: UserSettings | null;
+  onConnectGmail: () => void;
+  onManageWhatsApp: () => void;
   messages: EmailMessage[];
   accounts: ConnectedAccount[];
 };
@@ -43,8 +50,9 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "badge-error",
 };
 
-export function MessagesTab({ messages, accounts }: MessagesTabProps) {
+export function MessagesTab({ messages, accounts, userSettings, onConnectGmail, onManageWhatsApp }: MessagesTabProps) {
   const router = useRouter();
+  const [viewMode, setViewMode] = useState<"focus" | "table">("focus");
   const [search, setSearch] = useState("");
   const [accountFilter, setAccountFilter] = useState("all");
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
@@ -219,7 +227,7 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
   };
 
   return (
-    <>
+    <div className={ui.page}>
       {/* Header */}
       <div className="dashboard-title-row" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
         <div>
@@ -584,9 +592,24 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
         </div>
       </div>
 
+      <div className={ui.viewToolbar}>
+        <div><strong>A little more clarity.</strong><span>Read the brief, explore the reasoning, or open the original.</span></div>
+        <div className={ui.segmented} aria-label="Message layout">
+          <button type="button" aria-pressed={viewMode === "focus"} onClick={() => setViewMode("focus")}><Inbox size={14} /> Focus view</button>
+          <button type="button" aria-pressed={viewMode === "table"} onClick={() => setViewMode("table")}><FileText size={14} /> Table view</button>
+        </div>
+      </div>
       {/* Messages Table & Mobile Expandable Cards */}
       {filteredMessages.length > 0 ? (
         <div className="panel messages-table-panel">
+          {viewMode === "focus" ? (
+            <div className={ui.focusInbox}>
+              <InboxWorkspace messages={paginatedMessages} accounts={accounts} receivedCount={filteredMessages.length}
+                title="Your intelligence workspace" showFilters={false} visibleLimit={pageSize}
+                userSettings={userSettings} onConnectGmail={onConnectGmail} onManageWhatsApp={onManageWhatsApp}
+                onSelectMessage={setSelectedMessage} />
+            </div>
+          ) : <>
           {/* Desktop Table */}
           <div className="messages-desktop-table-container">
             <table className="messages-table">
@@ -608,6 +631,8 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
                       key={msg.id} 
                       className="message-table-row clickable-row"
                       onClick={() => setSelectedMessage(msg)}
+                      tabIndex={0}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedMessage(msg); } }}
                       title="Click to view message intelligence"
                     >
                       <td className="msg-sender-cell">
@@ -782,6 +807,7 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
             })}
           </div>
 
+          </>}
           {/* Pagination Footer Controls */}
           <div className="messages-pagination-bar">
             <div className="pagination-info">
@@ -857,6 +883,6 @@ export function MessagesTab({ messages, accounts }: MessagesTabProps) {
           onClose={() => setSelectedMessage(null)}
         />
       )}
-    </>
+    </div>
   );
 }
