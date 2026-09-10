@@ -275,3 +275,224 @@ export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
     }
   );
 }
+
+/**
+ * Re-opens or refreshes the 24-hour customer messaging window for a user upon receiving an inbound WhatsApp message.
+ */
+export async function openWhatsApp24hWindow(
+  supabase: ReturnType<typeof getSupabaseService>,
+  userId: string,
+  fromPhone: string,
+  inboundText?: string | null
+): Promise<void> {
+  try {
+    const { data: userSettings } = await supabase
+      .from('user_settings')
+      .select('id, notification_preferences')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!userSettings) return;
+
+    const existingPrefs = (userSettings.notification_preferences as Record<string, unknown>) || {};
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const updatedPrefs = {
+      ...existingPrefs,
+      last_inbound_at: now.toISOString(),
+      window_status: 'OPEN',
+      window_expires_at: expiresAt.toISOString(),
+      last_inbound_text: inboundText || existingPrefs.last_inbound_text || null,
+    };
+
+    await supabase
+      .from('user_settings')
+      .update({
+        notification_preferences: updatedPrefs,
+        updated_at: now.toISOString(),
+      })
+      .eq('id', userSettings.id);
+
+    // Record system audit event
+    await supabase.from('system_events').insert({
+      user_id: userId,
+      event_type: 'WHATSAPP_WINDOW_OPENED',
+      entity_type: 'user_settings',
+      entity_id: userSettings.id,
+      severity: 'info',
+      payload: {
+        from_phone: fromPhone,
+        inbound_text: inboundText,
+        window_expires_at: expiresAt.toISOString(),
+      },
+      occurred_at: now.toISOString(),
+    });
+  } catch (err) {
+    console.error('Failed to update 24h window in user_settings:', err);
+  }
+}
+
+/**
+ * Flushes and delivers all stacked / pending high-priority email alerts from the last 24 hours to the user on WhatsApp.
+ */
+export async function flushStackedEmailAlerts(
+  supabase: ReturnType<typeof getSupabaseService>,
+  userId: string,
+  recipientPhone: string
+): Promise<{ flushedCount: number; messagesDelivered: string[] }> {
+  try {
+    // 1. Fetch user threshold preference
+    const { data: userSettings } = await supabase
+      .from('user_settings')
+      .select('importance_threshold')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const threshold = userSettings?.importance_threshold ? Number(userSettings.importance_threshold) : 0.70;
+
+    // 2. Fetch candidate emails received in the last 24 hours (or pending delivery)
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: candidates, error: candError } = await supabase
+      .from('email_messages')
+      .select('id, account_id, subject, snippet, body_text, sender, recipients, received_at, processing_status')
+      .eq('user_id', userId)
+      .gte('received_at', cutoff)
+      .neq('processing_status', 'DISCARDED')
+      .neq('processing_status', 'DELIVERED')
+      .order('received_at', { ascending: true })
+      .limit(10);
+
+    if (candError || !candidates || candidates.length === 0) {
+      return { flushedCount: 0, messagesDelivered: [] };
+    }
+
+    const deliveredIds: string[] = [];
+
+    for (const msg of candidates) {
+      // Fetch or run triage AI score
+      let { data: triageRecord } = await supabase
+        .from('ai_results')
+        .select('category, importance')
+        .eq('message_id', msg.id)
+        .maybeSingle();
+
+      if (!triageRecord) {
+        try {
+          const { triageEmailWithAi } = await import('@/modules/ai/prompts/triage');
+          const aiTriage = await triageEmailWithAi({
+            subject: msg.subject,
+            sender: msg.sender?.raw || 'Unknown',
+            snippet: msg.snippet,
+            bodyText: msg.body_text,
+          });
+
+          await supabase.from('ai_results').upsert({
+            message_id: msg.id,
+            category: aiTriage.result.category,
+            importance: aiTriage.result.importance,
+            confidence: aiTriage.result.confidence,
+            reason: aiTriage.result.reason,
+            model: aiTriage.model,
+            prompt_version: aiTriage.promptVersion,
+            triaged_at: new Date().toISOString(),
+          });
+
+          triageRecord = {
+            category: aiTriage.result.category,
+            importance: aiTriage.result.importance,
+          };
+        } catch (tErr) {
+          console.warn(`Failed to triage candidate ${msg.id} during flush:`, tErr);
+        }
+      }
+
+      const isImportant =
+        triageRecord &&
+        (Number(triageRecord.importance) >= threshold ||
+          triageRecord.category === 'important' ||
+          triageRecord.category === 'urgent');
+
+      if (!isImportant) {
+        // Mark as PROCESSED if not meeting high priority threshold
+        await supabase
+          .from('email_messages')
+          .update({ processing_status: 'PROCESSED' })
+          .eq('id', msg.id);
+        continue;
+      }
+
+      // Fetch or generate summary
+      let { data: summaryRecord } = await supabase
+        .from('summaries')
+        .select('summary_text, extracted_items')
+        .eq('message_id', msg.id)
+        .maybeSingle();
+
+      if (!summaryRecord || !summaryRecord.summary_text) {
+        try {
+          const { summarizeEmailWithAi } = await import('@/modules/ai/prompts/summary');
+          const aiSummary = await summarizeEmailWithAi({
+            subject: msg.subject,
+            sender: msg.sender?.raw || 'Unknown',
+            snippet: msg.snippet,
+            bodyText: msg.body_text,
+          });
+
+          await supabase.from('summaries').upsert({
+            message_id: msg.id,
+            summary_text: aiSummary.result.summary_text,
+            extracted_items: aiSummary.result.extracted_items,
+            model: aiSummary.model,
+            prompt_version: aiSummary.promptVersion,
+            created_at: new Date().toISOString(),
+          });
+
+          summaryRecord = {
+            summary_text: aiSummary.result.summary_text,
+            extracted_items: aiSummary.result.extracted_items,
+          };
+        } catch (sErr) {
+          console.warn(`Failed to summarize candidate ${msg.id} during flush:`, sErr);
+        }
+      }
+
+      if (summaryRecord?.summary_text) {
+        const actionItems = Array.isArray(summaryRecord.extracted_items)
+          ? summaryRecord.extracted_items
+          : (summaryRecord.extracted_items as { action_items?: Array<{ action: string; deadline?: string; assignee?: string }> })?.action_items || [];
+
+        try {
+          await sendStrikeEmailAlert({
+            recipientPhone,
+            sender: msg.sender?.raw,
+            subject: msg.subject,
+            summaryText: summaryRecord.summary_text,
+            category: triageRecord?.category,
+            importance: triageRecord?.importance,
+            actionItems,
+            emailMessageId: msg.id,
+            userId,
+          });
+
+          await supabase
+            .from('email_messages')
+            .update({ processing_status: 'DELIVERED' })
+            .eq('id', msg.id);
+
+          deliveredIds.push(msg.id);
+        } catch (deliverErr) {
+          console.error(`Failed to dispatch stacked message ${msg.id}:`, deliverErr);
+        }
+      }
+    }
+
+    return {
+      flushedCount: deliveredIds.length,
+      messagesDelivered: deliveredIds,
+    };
+  } catch (err) {
+    console.error('Error in flushStackedEmailAlerts:', err);
+    return { flushedCount: 0, messagesDelivered: [] };
+  }
+}

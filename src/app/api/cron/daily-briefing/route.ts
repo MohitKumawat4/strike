@@ -36,7 +36,7 @@ async function handleDailyBriefing(req: NextRequest) {
     // Query all users who have an active WhatsApp destination configured
     const { data: settingsList, error: queryError } = await supabaseAdmin
       .from("user_settings")
-      .select("user_id, whatsapp_destination")
+      .select("id, user_id, whatsapp_destination, notification_preferences")
       .not("whatsapp_destination", "is", null);
 
     if (queryError) {
@@ -65,13 +65,40 @@ async function handleDailyBriefing(req: NextRequest) {
     let dispatchedCount = 0;
     const errors: Array<{ userId: string; phone: string; error: string }> = [];
 
-    // Dispatch greetings template to each recipient
+    // Dispatch greetings template to each recipient whose 23h interval is due or expiring
     for (const recipient of recipients) {
       const phone = recipient.whatsapp_destination!.trim();
+      const prefs = (recipient.notification_preferences as Record<string, unknown>) || {};
+      const lastTemplateSentAt = prefs.last_template_sent_at
+        ? new Date(prefs.last_template_sent_at as string).getTime()
+        : 0;
+      
+      // Prevent spamming if template was already sent within the last 20 hours
+      const twentyHoursMs = 20 * 60 * 60 * 1000;
+      const isDue = Date.now() - lastTemplateSentAt >= twentyHoursMs;
+
+      if (!isDue) {
+        continue;
+      }
+
       try {
         await sendGreetings24hTemplate(phone, "there", {
           user_id: recipient.user_id,
         });
+
+        // Update user_settings with timestamp
+        await supabaseAdmin
+          .from("user_settings")
+          .update({
+            notification_preferences: {
+              ...prefs,
+              last_template_sent_at: new Date().toISOString(),
+              window_status: "CLOSING_SOON",
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", recipient.id);
+
         dispatchedCount += 1;
       } catch (dispatchErr) {
         const errMsg = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
@@ -82,6 +109,14 @@ async function handleDailyBriefing(req: NextRequest) {
           error: errMsg,
         });
       }
+    }
+
+    // Drain any pending processing jobs
+    try {
+      const { runProcessingBatch } = await import("@/modules/processing/pipeline");
+      await runProcessingBatch(supabaseAdmin, 25);
+    } catch (pipeErr) {
+      console.warn("Pipeline drain error in daily briefing cron:", pipeErr);
     }
 
     return NextResponse.json({

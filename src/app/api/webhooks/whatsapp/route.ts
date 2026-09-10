@@ -124,88 +124,179 @@ export async function POST(request: NextRequest) {
         const messages = value.messages || [];
         for (const msg of messages) {
           const fromPhone = msg.from;
+          const cleanFromDigits = fromPhone.replace(/\D/g, '');
           const msgId = msg.id;
 
           console.log(`📱 Inbound WhatsApp message from ${fromPhone}, type: ${msg.type}`);
 
-          // Handle Interactive Button Replies (e.g. "Mark Read", "Archive", "Open Strike")
-          if (msg.type === 'interactive' && msg.interactive?.button_reply) {
-            const buttonId = msg.interactive.button_reply.id;
-            const buttonTitle = msg.interactive.button_reply.title;
-            console.log(`🔘 Button tapped: "${buttonTitle}" (ID: ${buttonId})`);
+          // 1. Locate user in user_settings matching phone number
+          const { data: allSettings } = await supabaseAdmin
+            .from('user_settings')
+            .select('id, user_id, whatsapp_destination, notification_preferences')
+            .not('whatsapp_destination', 'is', null);
 
-            // Check for message action (read_, archive_, handled_)
-            if (
-              buttonId.startsWith('read_') ||
-              buttonId.startsWith('archive_') ||
-              buttonId.startsWith('handled_')
-            ) {
-              const msgIdPrefix = buttonId.replace(/^(read_|archive_|handled_)/, '');
+          const matchedSetting = (allSettings || []).find((s) => {
+            const destDigits = (s.whatsapp_destination || '').replace(/\D/g, '');
+            return (
+              destDigits === cleanFromDigits ||
+              destDigits.endsWith(cleanFromDigits) ||
+              cleanFromDigits.endsWith(destDigits)
+            );
+          });
 
-              // 1. Locate message
-              const { data: emailMsg } = await supabaseAdmin
-                .from('email_messages')
-                .select('id, account_id, provider_message_id')
-                .ilike('id', `${msgIdPrefix}%`)
-                .limit(1)
-                .maybeSingle();
+          const userId = matchedSetting?.user_id;
 
-              if (emailMsg) {
-                // 2. Update status in database
-                await supabaseAdmin
+          // 2. Open / Refresh 24-Hour Messaging Window & Flush Stacked Emails
+          if (userId) {
+            const inboundText = msg.text?.body || msg.interactive?.button_reply?.title || null;
+            const { openWhatsApp24hWindow, flushStackedEmailAlerts, sendWhatsAppMessage } =
+              await import('@/modules/whatsapp');
+
+            // Re-open window in database and system audit log
+            await openWhatsApp24hWindow(supabaseAdmin, userId, fromPhone, inboundText);
+
+            // Handle Interactive Button Replies (e.g. "Mark Read", "Archive", "Open Strike")
+            let handledAction = false;
+            if (msg.type === 'interactive' && msg.interactive?.button_reply) {
+              const buttonId = msg.interactive.button_reply.id;
+              const buttonTitle = msg.interactive.button_reply.title;
+              console.log(`🔘 Button tapped: "${buttonTitle}" (ID: ${buttonId})`);
+
+              // Check for message action (read_, archive_, handled_)
+              if (
+                buttonId.startsWith('read_') ||
+                buttonId.startsWith('archive_') ||
+                buttonId.startsWith('handled_')
+              ) {
+                handledAction = true;
+                const msgIdPrefix = buttonId.replace(/^(read_|archive_|handled_)/, '');
+
+                // 1. Locate message
+                const { data: emailMsg } = await supabaseAdmin
                   .from('email_messages')
-                  .update({ processing_status: 'PROCESSED' })
-                  .eq('id', emailMsg.id);
+                  .select('id, account_id, provider_message_id')
+                  .ilike('id', `${msgIdPrefix}%`)
+                  .limit(1)
+                  .maybeSingle();
 
-                // 3. Perform 2-Way Sync to Gmail if account token exists
-                try {
-                  const { data: account } = await supabaseAdmin
-                    .from('email_accounts')
-                    .select('encrypted_refresh_token')
-                    .eq('id', emailMsg.account_id)
-                    .single();
+                if (emailMsg) {
+                  // 2. Update status in database
+                  await supabaseAdmin
+                    .from('email_messages')
+                    .update({ processing_status: 'PROCESSED' })
+                    .eq('id', emailMsg.id);
 
-                  if (account?.encrypted_refresh_token && emailMsg.provider_message_id) {
-                    const { modifyGmailMessage } = await import(
-                      '@/modules/email/providers/gmail/gmail.client'
+                  // 3. Perform 2-Way Sync to Gmail if account token exists
+                  try {
+                    const { data: account } = await supabaseAdmin
+                      .from('email_accounts')
+                      .select('encrypted_refresh_token')
+                      .eq('id', emailMsg.account_id)
+                      .single();
+
+                    if (account?.encrypted_refresh_token && emailMsg.provider_message_id) {
+                      const { modifyGmailMessage } = await import(
+                        '@/modules/email/providers/gmail/gmail.client'
+                      );
+
+                      const isArchive =
+                        buttonId.startsWith('archive_') || buttonId.startsWith('handled_');
+                      await modifyGmailMessage(
+                        account.encrypted_refresh_token,
+                        emailMsg.provider_message_id,
+                        {
+                          removeLabelIds: isArchive ? ['UNREAD', 'INBOX'] : ['UNREAD'],
+                        }
+                      );
+                      console.log(
+                        `✅ Synced action to Gmail for message ${emailMsg.provider_message_id}`
+                      );
+                    }
+                  } catch (gmailSyncErr) {
+                    console.warn(
+                      'Could not sync action to Gmail directly (may have readonly scope):',
+                      gmailSyncErr
                     );
-
-                    const isArchive = buttonId.startsWith('archive_') || buttonId.startsWith('handled_');
-                    await modifyGmailMessage(
-                      account.encrypted_refresh_token,
-                      emailMsg.provider_message_id,
-                      {
-                        removeLabelIds: isArchive ? ['UNREAD', 'INBOX'] : ['UNREAD'],
-                      }
-                    );
-                    console.log(`✅ Synced action to Gmail for message ${emailMsg.provider_message_id}`);
                   }
-                } catch (gmailSyncErr) {
-                  console.warn('Could not sync action to Gmail directly (may have readonly scope):', gmailSyncErr);
-                }
 
-                console.log(`✅ Marked email message ${emailMsg.id} as processed via WhatsApp action`);
+                  console.log(
+                    `✅ Marked email message ${emailMsg.id} as processed via WhatsApp action`
+                  );
+                }
+              }
+            }
+
+            // Flush stacked email alerts from last 24 hours
+            const destinationPhone = matchedSetting.whatsapp_destination || fromPhone;
+            const flushResult = await flushStackedEmailAlerts(
+              supabaseAdmin,
+              userId,
+              destinationPhone
+            );
+
+            console.log(
+              `🚀 Flushed ${flushResult.flushedCount} stacked email alert(s) for user ${userId}`
+            );
+
+            // If user sent a greeting or quick action and NO stacked emails were waiting, send reassurance
+            if (flushResult.flushedCount === 0 && !handledAction) {
+              const rawText = (
+                msg.text?.body ||
+                msg.interactive?.button_reply?.title ||
+                ''
+              )
+                .trim()
+                .toLowerCase();
+              const isGreetingOrAck =
+                rawText === 'hi' ||
+                rawText === 'hello' ||
+                rawText === 'hey' ||
+                rawText === 'activate stream' ||
+                rawText === 'ready for briefing' ||
+                rawText === 'view inbox' ||
+                msg.interactive?.button_reply?.id === 'ACTIVATE_STREAM' ||
+                msg.interactive?.button_reply?.id === 'START_DAY' ||
+                msg.interactive?.button_reply?.id === 'VIEW_INBOX';
+
+              if (isGreetingOrAck) {
+                const ackText = [
+                  '⚡ *Strike Intelligence: Connected & Active* ⚡',
+                  '',
+                  'Your 24-hour priority briefing window is now *ACTIVE*.',
+                  '• You are completely caught up with your inbox.',
+                  '• You will receive instant AI executive summaries when high-priority emails arrive.',
+                  '',
+                  '🚀 _Strike Email Intelligence Dashboard_',
+                ].join('\n');
+
+                try {
+                  await sendWhatsAppMessage(
+                    destinationPhone,
+                    'text',
+                    { body: ackText },
+                    { user_id: userId }
+                  );
+                } catch (ackErr) {
+                  console.warn('Could not send window active ack message:', ackErr);
+                }
               }
             }
           }
 
           // Optional: Store inbound message in whatsapp_messages if table exists
           try {
-            await supabaseAdmin
-              .from('whatsapp_messages')
-              .insert([
-                {
-                  wa_message_id: msgId,
-                  phone_number: fromPhone,
-                  direction: 'inbound',
-                  message_type: msg.type,
-                  text_body: msg.text?.body || msg.interactive?.button_reply?.title || null,
-                },
-              ]);
+            await supabaseAdmin.from('whatsapp_messages').insert([
+              {
+                wa_message_id: msgId,
+                phone_number: fromPhone,
+                direction: 'inbound',
+                message_type: msg.type,
+                text_body: msg.text?.body || msg.interactive?.button_reply?.title || null,
+              },
+            ]);
           } catch {
             // Table may not exist yet — non-fatal
           }
-
         }
       }
     }

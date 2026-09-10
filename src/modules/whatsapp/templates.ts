@@ -131,20 +131,19 @@ export function getTemplateDefinition(templateKeyOrName: string): WhatsAppTempla
  */
 export function formatTemplateComponents(
   template: WhatsAppTemplateDefinition,
-  bodyVariables: string[] = []
+  bodyVariables: string[] = [],
+  headerVariables?: string[]
 ): Array<Record<string, unknown>> {
   const components: Array<Record<string, unknown>> = [];
 
-  // 1. Header component (if dynamic or text)
-  if (template.headerText) {
+  // 1. Dynamic Header component (only included if template requires dynamic variable substitution)
+  if (headerVariables && headerVariables.length > 0) {
     components.push({
       type: 'header',
-      parameters: [
-        {
-          type: 'text',
-          text: template.headerText,
-        },
-      ],
+      parameters: headerVariables.map((val) => ({
+        type: 'text',
+        text: val,
+      })),
     });
   }
 

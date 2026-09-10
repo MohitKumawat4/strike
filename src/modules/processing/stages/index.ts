@@ -371,6 +371,54 @@ export async function executeDeliveryStage(
       console.error("WhatsApp delivery error in pipeline:", err);
       const errMsg = err instanceof Error ? err.message : "WhatsApp delivery failed";
 
+      // Detect if failure is due to 24-hour messaging window closure / Meta 131047 / HTTP 400
+      const isWindowClosed =
+        errMsg.includes("24 hours") ||
+        errMsg.includes("131047") ||
+        errMsg.includes("400");
+
+      if (isWindowClosed) {
+        // Mark message as DELIVERY_PENDING (stacked) so it will be flushed immediately once user replies
+        await supabase
+          .from("email_messages")
+          .update({ processing_status: "DELIVERY_PENDING" })
+          .eq("id", message.id);
+
+        // Proactively send 24h Greetings / Re-engagement Template if not sent in the last 12 hours
+        try {
+          const userPrefs = (userSettings?.notification_preferences as Record<string, unknown>) || {};
+          const lastTemplateSentAt = userPrefs.last_template_sent_at
+            ? new Date(userPrefs.last_template_sent_at as string).getTime()
+            : 0;
+          const twelveHoursMs = 12 * 60 * 60 * 1000;
+
+          if (Date.now() - lastTemplateSentAt > twelveHoursMs) {
+            const { sendGreetings24hTemplate } = await import("@/modules/whatsapp/templates");
+            await sendGreetings24hTemplate(destinationPhone, "there", { user_id: message.user_id });
+
+            await supabase
+              .from("user_settings")
+              .update({
+                notification_preferences: {
+                  ...userPrefs,
+                  last_template_sent_at: new Date().toISOString(),
+                  window_status: "CLOSED",
+                },
+                updated_at: new Date().toISOString(),
+              })
+              .eq("user_id", message.user_id);
+          }
+        } catch (templateFallbackErr) {
+          console.warn("Failed to dispatch template prompt for closed window:", templateFallbackErr);
+        }
+
+        return {
+          success: true,
+          nextStage: null,
+          messageStatus: "DELIVERY_PENDING",
+        };
+      }
+
       await logLayerError({
         layer: "delivery",
         severity: "error",
