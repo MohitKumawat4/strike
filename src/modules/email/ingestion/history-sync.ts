@@ -106,6 +106,17 @@ export async function processHistorySync(
 
   let syncedCount = 0;
 
+  // Check if user has enabled Ingestion-Only mode (bypasses AI pipeline and WhatsApp delivery)
+  const { data: userSettings } = await supabase
+    .from("user_settings")
+    .select("notification_preferences")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const isProcessingDisabled = Boolean(
+    (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+  );
+
   // Ingest each new email
   for (const messageId of newMessageIds) {
     try {
@@ -117,6 +128,9 @@ export async function processHistorySync(
 
       const message = msgResponse.data;
       if (!message || !message.id) continue;
+
+      // Extract native Gmail label IDs (e.g. INBOX, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, IMPORTANT)
+      const labelIds = Array.isArray(message.labelIds) ? message.labelIds : [];
 
       const headers = message.payload?.headers || [];
       const getHeader = (name: string) =>
@@ -160,6 +174,7 @@ export async function processHistorySync(
             has_attachments: Boolean(
               message.payload?.parts?.some((part) => part.filename && part.filename.length > 0)
             ),
+            labels: labelIds,
             processing_status: "RECEIVED",
           },
           {
@@ -172,20 +187,22 @@ export async function processHistorySync(
       if (!insertError && insertedMsg) {
         syncedCount++;
 
-        // Automatically queue a pending processing job for the AI pipeline (Phase 5 ready)
-        await supabase.from("processing_jobs").upsert(
-          {
-            message_id: insertedMsg.id,
-            stage: "ingestion",
-            status: "pending",
-            attempts: 0,
-            started_at: new Date().toISOString(),
-          },
-          {
-            onConflict: "message_id,stage",
-            ignoreDuplicates: true,
-          }
-        );
+        // Only queue downstream AI processing job if Ingestion-Only mode is NOT active
+        if (!isProcessingDisabled) {
+          await supabase.from("processing_jobs").upsert(
+            {
+              message_id: insertedMsg.id,
+              stage: "ingestion",
+              status: "pending",
+              attempts: 0,
+              started_at: new Date().toISOString(),
+            },
+            {
+              onConflict: "message_id,stage",
+              ignoreDuplicates: true,
+            }
+          );
+        }
       }
     } catch (err) {
       console.error(`Failed to ingest message ${messageId} via history sync:`, err);

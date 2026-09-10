@@ -1,6 +1,7 @@
 import { generateStructuredAiJson } from "../ai.client";
+import { decodeHtmlEntities } from "@/modules/email/ingestion/initial-sync";
 
-export const TRIAGE_PROMPT_VERSION = "2026.08.v1";
+export const TRIAGE_PROMPT_VERSION = "2026.09.single-pass";
 
 export type UserCustomPriorityRules = {
   instructions?: string;
@@ -17,16 +18,31 @@ export type TriageInput = {
   userCustomRules?: UserCustomPriorityRules;
 };
 
+export type ExtractedActionItem = {
+  action: string;
+  deadline?: string;
+  assignee?: string;
+};
+
 export type TriageResult = {
   category: "important" | "normal" | "promotional" | "spam";
   importance: number;
   confidence: number;
   reason: string;
+  summary_text?: string;
+  extracted_items?: ExtractedActionItem[];
 };
 
+function cleanSummaryOutputText(text: string): string {
+  if (!text) return "";
+  let cleaned = decodeHtmlEntities(text).trim();
+  cleaned = cleaned.replace(/^(Executive\s+summary|Summary|Key\s+takeaways?|Brief):\s*/i, "");
+  return cleaned;
+}
+
 /**
- * Builds the AI prompt instructions for classifying and scoring emails,
- * incorporating user-defined custom priority rules and VIP preferences.
+ * Builds the AI prompt instructions for single-pass classification, scoring,
+ * and executive summary generation, incorporating user-defined VIP and custom rules.
  */
 export function buildTriagePrompt(input: TriageInput): { systemPrompt: string; userPrompt: string } {
   let customInstructionsSection = "";
@@ -49,19 +65,30 @@ export function buildTriagePrompt(input: TriageInput): { systemPrompt: string; u
     }
   }
 
-  const systemPrompt = `You are Strike AI, an elite email triage assistant.
-Your task is to analyze incoming emails and classify them with high precision into one of four categories:
-1. "important" — Time-sensitive, urgent requests, invoices, payments, client contracts, critical system alerts, schedule invites, or communications requiring swift action.
-2. "normal" — General professional correspondence, personal discussions, standard non-urgent replies.
-3. "promotional" — Marketing newsletters, product discounts, coupons, company announcements, promotional digests.
-4. "spam" — Unsolicited bulk marketing, scam attempts, phishing, unwanted junk.${customInstructionsSection}
+  const systemPrompt = `You are Strike AI, an elite email triage & briefing assistant.
+Your task is to analyze incoming emails in a single pass to:
+1. Classify them into one of four categories:
+   - "important" — Time-sensitive requests, invoices, payments, client contracts, critical system alerts, schedule invites, or urgent communications.
+   - "normal" — General professional correspondence, personal discussions, standard non-urgent replies.
+   - "promotional" — Marketing newsletters, product discounts, coupons, company announcements, promotional digests.
+   - "spam" — Unsolicited bulk marketing, scam attempts, phishing, unwanted junk.${customInstructionsSection}
+2. Provide a crisp 2-3 sentence executive summary explaining what the email is about and what is needed.
+3. Extract any specific actionable tasks or to-dos with deadlines.
 
 Output valid JSON matching this schema:
 {
   "category": "important" | "normal" | "promotional" | "spam",
   "importance": number, // 0.00 to 1.00 (e.g. 0.95 for urgent/time-critical/VIP, 0.10 for spam/promo)
   "confidence": number, // 0.00 to 1.00
-  "reason": string // 1-2 sentence justification for the classification
+  "reason": string, // 1-2 sentence justification for the classification
+  "summary_text": string, // Direct 2-3 sentence executive brief (do not prefix with "Summary:")
+  "extracted_items": [
+    {
+      "action": string, // Specific action item or task required
+      "deadline": string, // Mentioned deadline or "None"
+      "assignee": string // Person responsible or "You"
+    }
+  ]
 }`;
 
   const userPrompt = `Analyze the following email:
@@ -71,7 +98,7 @@ Subject: ${input.subject}
 Preview Snippet: ${input.snippet || "(No snippet)"}
 
 Message Content:
-${(input.bodyText || input.snippet || "").slice(0, 1500)}
+${(input.bodyText || input.snippet || "").slice(0, 1800)}
 
 Respond with JSON only.`;
 
@@ -79,8 +106,8 @@ Respond with JSON only.`;
 }
 
 /**
- * Evaluates an email using AI structured JSON generation,
- * with comprehensive heuristic fallback.
+ * Evaluates an email using AI structured JSON generation in a single pass,
+ * generating classification, importance score, executive brief, and action items.
  */
 export async function triageEmailWithAi(
   params: TriageInput
@@ -99,10 +126,16 @@ export async function triageEmailWithAi(
       importance: number;
       confidence: number;
       reason: string;
+      summary_text?: string;
+      extracted_items?: Array<{
+        action?: string;
+        deadline?: string;
+        assignee?: string;
+      }>;
     }>({
       systemPrompt,
       userPrompt,
-      responseSchemaName: "EmailTriageResult",
+      responseSchemaName: "EmailTriageAndSummaryResult",
     });
 
     const validCategories = ["important", "normal", "spam", "promotional"] as const;
@@ -113,19 +146,34 @@ export async function triageEmailWithAi(
     const importance = Math.max(0, Math.min(1, Number(aiResponse.data.importance) || 0.5));
     const confidence = Math.max(0, Math.min(1, Number(aiResponse.data.confidence) || 0.8));
 
+    const rawSummary = aiResponse.data.summary_text || params.snippet || params.subject || "";
+    const summaryText = cleanSummaryOutputText(rawSummary);
+
+    const extractedItems = (Array.isArray(aiResponse.data.extracted_items)
+      ? aiResponse.data.extracted_items
+      : []
+    ).map((item) => ({
+      action: decodeHtmlEntities(item.action || ""),
+      deadline: item.deadline ? decodeHtmlEntities(item.deadline) : "None",
+      assignee: item.assignee ? decodeHtmlEntities(item.assignee) : "You",
+    }));
+
     return {
       result: {
         category,
         importance: Number(importance.toFixed(2)),
         confidence: Number(confidence.toFixed(2)),
-        reason: aiResponse.data.reason || "Classified via AI intelligence model.",
+        reason: aiResponse.data.reason || "Processed via Strike single-pass AI.",
+        summary_text: summaryText,
+        extracted_items: extractedItems,
       },
       model: aiResponse.model,
       promptVersion: TRIAGE_PROMPT_VERSION,
       inputTokens: aiResponse.inputTokens,
       outputTokens: aiResponse.outputTokens,
     };
-  } catch (err) {
+  } catch (error) {
+    console.warn("AI single-pass triage failed, falling back to deterministic heuristic classification:", error);
     // Advanced deterministic heuristic classification engine
     const textToAnalyze = `${params.subject} ${params.sender} ${params.snippet || ""} ${params.bodyText || ""}`.toLowerCase();
 
@@ -187,6 +235,8 @@ export async function triageEmailWithAi(
         importance,
         confidence: 0.85,
         reason,
+        summary_text: params.snippet || params.subject || "",
+        extracted_items: [],
       },
       model: "strike-heuristic-classifier",
       promptVersion: TRIAGE_PROMPT_VERSION,

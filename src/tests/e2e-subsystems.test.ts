@@ -33,6 +33,7 @@ process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "0123456789abcdef0123
 import { encryptToken, decryptToken } from "../common/crypto/encryption";
 import { triageEmailWithAi } from "../modules/ai/prompts/triage";
 import { summarizeEmailWithAi } from "../modules/ai/prompts/summary";
+import { preFilterEmail } from "../modules/email/rules/pre-filter";
 
 let totalTests = 0;
 let passedTests = 0;
@@ -173,6 +174,48 @@ async function runAllTests() {
 
     assert.equal(parsed.emailAddress, "user@example.com");
     assert.equal(parsed.historyId, "987654321");
+  });
+
+  // ==========================================
+  // 6. GMAIL NATIVE LABEL & PRE-FILTER
+  // ==========================================
+  console.log("\n🏷️ 6. Testing Deterministic Gmail Label & Zero-Token Filtration Subsystem:");
+
+  await runTest("Discards promotional emails using native CATEGORY_PROMOTIONS label (0 tokens)", () => {
+    const res = preFilterEmail({
+      subject: "Flash Sale: 50% Off Everything Today Only!",
+      labels: ["INBOX", "CATEGORY_PROMOTIONS"],
+    });
+    assert.equal(res.shouldTriage, false);
+    assert.equal(res.reason, "gmail_promotions_label");
+  });
+
+  await runTest("Discards social notifications using native CATEGORY_SOCIAL label (0 tokens)", () => {
+    const res = preFilterEmail({
+      subject: "John Doe sent you a connection request on LinkedIn",
+      labels: ["INBOX", "CATEGORY_SOCIAL"],
+    });
+    assert.equal(res.shouldTriage, false);
+    assert.equal(res.reason, "gmail_social_label");
+  });
+
+  await runTest("Discards emails matching user-defined ignore keywords (0 tokens)", () => {
+    const res = preFilterEmail({
+      subject: "Weekly Community Digest & Webinar Schedule",
+      labels: ["INBOX"],
+      ignoreKeywords: ["webinar", "digest"],
+    });
+    assert.equal(res.shouldTriage, false);
+    assert.ok(res.reason.includes("user_ignore_keyword"));
+  });
+
+  await runTest("Allows priority correspondence without noise labels to advance to single-pass AI triage", () => {
+    const res = preFilterEmail({
+      subject: "Urgent: Q3 Board Meeting Agenda & Financials",
+      labels: ["INBOX", "IMPORTANT"],
+    });
+    assert.equal(res.shouldTriage, true);
+    assert.equal(res.reason, "requires_triage");
   });
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

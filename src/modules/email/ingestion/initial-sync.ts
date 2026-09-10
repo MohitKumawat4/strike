@@ -160,6 +160,17 @@ export async function performInitialSync(
   const historicalMessages: SyncedHistoricalMessage[] = [];
   const now = new Date();
 
+  // Check if user has enabled Ingestion-Only mode (bypasses AI pipeline and WhatsApp delivery)
+  const { data: userSettings } = await supabase
+    .from("user_settings")
+    .select("notification_preferences")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const isProcessingDisabled = Boolean(
+    (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+  );
+
   // 2. Fetch and parse each message
   for (const item of messageList) {
     if (!item.id) continue;
@@ -173,6 +184,9 @@ export async function performInitialSync(
 
       const message = msgResponse.data;
       if (!message || !message.id) continue;
+
+      // Extract native Gmail label IDs (e.g. INBOX, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, IMPORTANT)
+      const labelIds = Array.isArray(message.labelIds) ? message.labelIds : [];
 
       const headers = message.payload?.headers || [];
       const getHeader = (name: string) =>
@@ -222,6 +236,7 @@ export async function performInitialSync(
             has_attachments: Boolean(
               message.payload?.parts?.some((part) => part.filename && part.filename.length > 0)
             ),
+            labels: labelIds,
             processing_status: isToday ? "RECEIVED" : "COMPLETED",
           },
           {
@@ -236,20 +251,22 @@ export async function performInitialSync(
 
         if (isToday) {
           todayCount++;
-          // Queue pending ingestion job for the live AI pipeline
-          await supabase.from("processing_jobs").upsert(
-            {
-              message_id: insertedMsg.id,
-              stage: "ingestion",
-              status: "pending",
-              attempts: 0,
-              started_at: new Date().toISOString(),
-            },
-            {
-              onConflict: "message_id,stage",
-              ignoreDuplicates: true,
-            }
-          );
+          // Queue pending ingestion job only if Ingestion-Only mode is NOT active
+          if (!isProcessingDisabled) {
+            await supabase.from("processing_jobs").upsert(
+              {
+                message_id: insertedMsg.id,
+                stage: "ingestion",
+                status: "pending",
+                attempts: 0,
+                started_at: new Date().toISOString(),
+              },
+              {
+                onConflict: "message_id,stage",
+                ignoreDuplicates: true,
+              }
+            );
+          }
         } else {
           historicalCount++;
           historicalMessages.push({

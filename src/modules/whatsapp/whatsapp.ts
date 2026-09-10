@@ -342,12 +342,20 @@ export async function flushStackedEmailAlerts(
   recipientPhone: string
 ): Promise<{ flushedCount: number; messagesDelivered: string[] }> {
   try {
-    // 1. Fetch user threshold preference
+    // 1. Fetch user threshold preference and Ingestion-Only mode status
     const { data: userSettings } = await supabase
       .from('user_settings')
-      .select('importance_threshold')
+      .select('importance_threshold, notification_preferences')
       .eq('user_id', userId)
       .maybeSingle();
+
+    const isProcessingDisabled = Boolean(
+      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    );
+    if (isProcessingDisabled) {
+      console.log(`Ingestion-only mode is active for user ${userId}. Skipping WhatsApp message flush.`);
+      return { flushedCount: 0, messagesDelivered: [] };
+    }
 
     const threshold = userSettings?.importance_threshold ? Number(userSettings.importance_threshold) : 0.70;
 

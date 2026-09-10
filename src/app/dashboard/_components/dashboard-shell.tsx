@@ -114,6 +114,7 @@ export type UserSettings = {
   notify_on_failure?: boolean;
   whatsapp_destination?: string | null;
   custom_priority_rules?: CustomPriorityRules;
+  disable_processing?: boolean;
 };
 
 /* Tab key type for the sidebar navigation */

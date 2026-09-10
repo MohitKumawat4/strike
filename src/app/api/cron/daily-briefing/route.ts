@@ -47,10 +47,15 @@ async function handleDailyBriefing(req: NextRequest) {
       );
     }
 
-    // Filter to valid phone strings
-    const recipients = (settingsList || []).filter(
-      (s) => s.whatsapp_destination && s.whatsapp_destination.trim().length > 0
-    );
+    // Filter to valid phone strings for users who have NOT enabled Ingestion-Only mode
+    const recipients = (settingsList || []).filter((s) => {
+      const prefs = (s.notification_preferences as Record<string, unknown>) || {};
+      return Boolean(
+        s.whatsapp_destination &&
+        s.whatsapp_destination.trim().length > 0 &&
+        !prefs.disable_processing
+      );
+    });
 
     if (recipients.length === 0) {
       return NextResponse.json({

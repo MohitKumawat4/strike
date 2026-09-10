@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Moon,
   Plus,
+  PowerOff,
   Send,
   Settings2,
   Shield,
@@ -24,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 
+import { ConfirmModal } from "../confirm-modal";
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
 import type { UserSettings } from "../dashboard-shell";
 
@@ -114,6 +116,12 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
   const [notifyFailures, setNotifyFailures] = useState(
     userSettings?.notify_on_failure ?? true
   );
+  const [disableProcessing, setDisableProcessing] = useState(
+    userSettings?.disable_processing ?? false
+  );
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [pendingProcessingState, setPendingProcessingState] = useState<boolean | null>(null);
+  const [isTogglingProcessing, setIsTogglingProcessing] = useState(false);
 
   /* Custom AI Priority Rules State */
   const [customInstructions, setCustomInstructions] = useState(
@@ -157,6 +165,9 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       }
       if (userSettings.notify_on_failure !== undefined) {
         setNotifyFailures(userSettings.notify_on_failure);
+      }
+      if (userSettings.disable_processing !== undefined) {
+        setDisableProcessing(userSettings.disable_processing);
       }
       if (userSettings.custom_priority_rules) {
         setCustomInstructions(userSettings.custom_priority_rules.instructions ?? "");
@@ -218,6 +229,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
             notification_preferences: {
               notify_on_important: notifyImportant,
               notify_on_failure: notifyFailures,
+              disable_processing: disableProcessing,
             },
             updated_at: new Date().toISOString(),
           },
@@ -235,6 +247,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         notify_on_important: notifyImportant,
         notify_on_failure: notifyFailures,
         whatsapp_destination: null,
+        disable_processing: disableProcessing,
       });
 
       router.refresh();
@@ -242,6 +255,72 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       console.error("Failed to disconnect WhatsApp:", err);
     } finally {
       setIsDisconnecting(false);
+    }
+  }
+
+  /* Trigger confirmation dialog when user interacts with Ingestion-Only toggle */
+  function handlePromptToggleProcessing(targetState: boolean) {
+    setPendingProcessingState(targetState);
+    setIsConfirmModalOpen(true);
+  }
+
+  /* Apply Ingestion-Only mode toggle after explicit user confirmation */
+  async function handleConfirmToggleProcessing() {
+    if (pendingProcessingState === null) return;
+    setIsTogglingProcessing(true);
+    const targetState = pendingProcessingState;
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        const rulesObj = {
+          instructions: customInstructions.trim(),
+          vipSenders,
+          ignoreKeywords,
+        };
+
+        await supabase.from("user_settings").upsert(
+          {
+            user_id: user.id,
+            whatsapp_destination: fullWhatsappDestination || null,
+            importance_threshold: importanceThreshold,
+            raw_body_retention_days: retentionDays,
+            notification_preferences: {
+              notify_on_important: notifyImportant,
+              notify_on_failure: notifyFailures,
+              disable_processing: targetState,
+            },
+            custom_priority_rules: rulesObj,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+      }
+
+      setDisableProcessing(targetState);
+      onUpdateUserSettings?.({
+        importance_threshold: importanceThreshold,
+        raw_body_retention_days: retentionDays,
+        notify_on_important: notifyImportant,
+        notify_on_failure: notifyFailures,
+        whatsapp_destination: fullWhatsappDestination || null,
+        custom_priority_rules: {
+          instructions: customInstructions.trim(),
+          vipSenders,
+          ignoreKeywords,
+        },
+        disable_processing: targetState,
+      });
+
+      setIsConfirmModalOpen(false);
+      setPendingProcessingState(null);
+      router.refresh();
+    } catch (err) {
+      console.error("Failed to toggle ingestion-only mode:", err);
+    } finally {
+      setIsTogglingProcessing(false);
     }
   }
 
@@ -287,6 +366,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               notification_preferences: {
                 notify_on_important: notifyImportant,
                 notify_on_failure: notifyFailures,
+                disable_processing: disableProcessing,
               },
               custom_priority_rules: rulesObj,
               updated_at: new Date().toISOString(),
@@ -302,6 +382,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
             notify_on_failure: notifyFailures,
             whatsapp_destination: fullWhatsappDestination,
             custom_priority_rules: rulesObj,
+            disable_processing: disableProcessing,
           });
           router.refresh();
         }
@@ -339,6 +420,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           notification_preferences: {
             notify_on_important: notifyImportant,
             notify_on_failure: notifyFailures,
+            disable_processing: disableProcessing,
           },
           custom_priority_rules: rulesObj,
           updated_at: new Date().toISOString(),
@@ -359,6 +441,7 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         notify_on_failure: notifyFailures,
         whatsapp_destination: fullWhatsappDestination || null,
         custom_priority_rules: rulesObj,
+        disable_processing: disableProcessing,
       });
 
       setSaveSuccess(true);
@@ -388,7 +471,15 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
       </div>
 
       <nav className={ui.sectionNav} aria-label="Settings sections">
-        {[["settings-profile", "Profile"], ["settings-appearance", "Appearance"], ["settings-preferences", "Processing"], ["settings-rules", "AI rules"], ["whatsapp-settings", "WhatsApp"], ["settings-notifications", "Notifications"]].map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+        {[
+          ["settings-profile", "Profile"],
+          ["settings-appearance", "Appearance"],
+          ["settings-ingestion-only", "Ingestion Mode"],
+          ["settings-preferences", "Processing"],
+          ["settings-rules", "AI rules"],
+          ["whatsapp-settings", "WhatsApp"],
+          ["settings-notifications", "Notifications"],
+        ].map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
       </nav>
       {/* Profile Card */}
       <div className="panel settings-section" id="settings-profile">
@@ -436,6 +527,73 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               Dark
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Dedicated Section: Ingestion-Only Mode (Kill Switch) */}
+      <div className="panel settings-section" id="settings-ingestion-only">
+        <div className="settings-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <PowerOff size={18} />
+            <h2>Ingestion-Only Mode</h2>
+          </div>
+          <span style={{
+            fontSize: "11.5px",
+            fontWeight: 650,
+            padding: "3px 10px",
+            borderRadius: "999px",
+            background: disableProcessing ? "rgba(234, 179, 8, 0.12)" : "rgba(34, 197, 94, 0.12)",
+            color: disableProcessing ? "#ca8a04" : "#16a34a",
+            border: `1px solid ${disableProcessing ? "rgba(234, 179, 8, 0.3)" : "rgba(34, 197, 94, 0.3)"}`,
+          }}>
+            {disableProcessing ? "Ingestion-Only Active (AI & WhatsApp Paused)" : "Pipeline Active (AI & WhatsApp Live)"}
+          </span>
+        </div>
+
+        <div className="settings-row" style={{ alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "16px" }}>
+          <div className="settings-row-label" style={{ maxWidth: "480px" }}>
+            <strong>Pause AI Processing & WhatsApp Delivery</strong>
+            <span>
+              When enabled, Strike strictly ingests and stores incoming emails in your dashboard. Email filtration, noise reduction, AI summarization, and WhatsApp notifications are completely halted.
+            </span>
+          </div>
+          <label className="settings-toggle" style={{ marginLeft: "auto" }}>
+            <input
+              aria-label="Toggle Ingestion-Only Mode"
+              checked={disableProcessing}
+              onChange={() => handlePromptToggleProcessing(!disableProcessing)}
+              type="checkbox"
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+        </div>
+
+        {/* Informational Callout */}
+        <div style={{
+          marginTop: "14px",
+          padding: "14px 16px",
+          borderRadius: "10px",
+          background: disableProcessing ? "rgba(234, 179, 8, 0.08)" : "var(--surface-muted)",
+          border: "1px solid var(--line)",
+          fontSize: "12.5px",
+          color: "var(--ink)",
+          lineHeight: 1.55,
+        }}>
+          {disableProcessing ? (
+            <div>
+              <strong style={{ color: "#ca8a04" }}>⚡ Ingestion-Only Mode is currently ON:</strong>
+              <p style={{ margin: "4px 0 0 0", color: "var(--muted)" }}>
+                Incoming emails will be stored for dashboard viewing, but Gemini AI triage, executive summarization, and WhatsApp delivery are disabled. No WhatsApp messages will be sent to your phone.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <strong style={{ color: "var(--brand-plum)" }}>ℹ️ Normal Pipeline Operation:</strong>
+              <p style={{ margin: "4px 0 0 0", color: "var(--muted)" }}>
+                Incoming emails pass through noise reduction and single-pass AI triage. High-importance emails generate executive summaries and are dispatched to your WhatsApp in real time.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1062,6 +1220,27 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </button>
         </div>
       </div>
+
+      {/* Confirmation Modal for Ingestion-Only Mode Toggle */}
+      <ConfirmModal
+        isOpen={isConfirmModalOpen}
+        title={
+          pendingProcessingState
+            ? "Pause AI Processing & WhatsApp Delivery?"
+            : "Resume AI Processing & WhatsApp Delivery?"
+        }
+        description={
+          pendingProcessingState
+            ? "This will disable all email filtration, noise reduction, AI summarization, and WhatsApp notifications. Strike will only ingest and store messages in your dashboard. Are you sure you want to proceed?"
+            : "This will re-enable email noise reduction, AI triage scoring, executive summarization, and real-time WhatsApp notifications for important emails. Are you sure you want to resume?"
+        }
+        confirmLabel={pendingProcessingState ? "Yes, Pause Processing" : "Yes, Resume"}
+        cancelLabel={pendingProcessingState ? "No, Keep Active" : "No, Keep Paused"}
+        isDestructive={pendingProcessingState ?? false}
+        isLoading={isTogglingProcessing}
+        onConfirm={handleConfirmToggleProcessing}
+        onClose={() => setIsConfirmModalOpen(false)}
+      />
     </div>
   );
 }

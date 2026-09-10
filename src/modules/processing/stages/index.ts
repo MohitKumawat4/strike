@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logLayerError } from "@/common/logging/layer-logger";
+import { preFilterEmail } from "@/modules/email/rules/pre-filter";
 
 export type StageResult = {
   success: boolean;
@@ -23,6 +24,7 @@ export type EmailMessageRecord = {
   body_html?: string;
   received_at: string;
   has_attachments: boolean;
+  labels?: string[];
   processing_status: string;
 };
 
@@ -79,6 +81,52 @@ export async function executePreFilterStage(
   message: EmailMessageRecord
 ): Promise<StageResult> {
   try {
+    // 1. Check if user has Ingestion-Only mode enabled
+    const { data: userSettings } = await supabase
+      .from("user_settings")
+      .select("notification_preferences, custom_priority_rules")
+      .eq("user_id", message.user_id)
+      .maybeSingle();
+
+    const isProcessingDisabled = Boolean(
+      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    );
+
+    if (isProcessingDisabled) {
+      // Ingestion-only mode: Halt processing pipeline immediately after ingestion
+      return {
+        success: true,
+        nextStage: null,
+        messageStatus: "RECEIVED",
+      };
+    }
+
+    const customRules = userSettings?.custom_priority_rules as
+      | { instructions?: string; vipSenders?: string[]; ignoreKeywords?: string[] }
+      | undefined;
+
+    // 2. Deterministic filtration with native Gmail labels & ignore keywords (0 AI tokens)
+    const filterDecision = preFilterEmail({
+      subject: message.subject,
+      sender: message.sender?.raw,
+      labels: message.labels,
+      ignoreKeywords: customRules?.ignoreKeywords,
+    });
+
+    if (!filterDecision.shouldTriage) {
+      await supabase
+        .from("email_messages")
+        .update({ processing_status: "DISCARDED" })
+        .eq("id", message.id);
+
+      return {
+        success: true,
+        nextStage: null,
+        messageStatus: "DISCARDED",
+        metadata: { reason: filterDecision.reason },
+      };
+    }
+
     const sender = (message.sender?.raw || "").toLowerCase();
     const subject = (message.subject || "").toLowerCase();
 
@@ -150,12 +198,24 @@ export async function executeTriageStage(
   try {
     const { triageEmailWithAi } = await import("@/modules/ai/prompts/triage");
 
-    // Fetch user threshold preference & custom priority rules
+    // Fetch user threshold preference, custom priority rules & ingestion-only mode
     const { data: userSettings } = await supabase
       .from("user_settings")
-      .select("importance_threshold, custom_priority_rules")
+      .select("importance_threshold, custom_priority_rules, notification_preferences")
       .eq("user_id", message.user_id)
       .maybeSingle();
+
+    const isProcessingDisabled = Boolean(
+      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    );
+
+    if (isProcessingDisabled) {
+      return {
+        success: true,
+        nextStage: null,
+        messageStatus: "RECEIVED",
+      };
+    }
 
     const customRules = userSettings?.custom_priority_rules as
       | { instructions?: string; vipSenders?: string[]; ignoreKeywords?: string[] }
@@ -198,8 +258,33 @@ export async function executeTriageStage(
       messageDate.getMonth() === now.getMonth() &&
       messageDate.getDate() === now.getDate();
 
-    // Conditional Summarization: ONLY summarize if from Today AND meets delivery threshold
+    // Single-Pass AI Optimization: If today & high importance, save summary and advance directly to delivery
     if (isToday && isHighImportance) {
+      if (aiTriage.result.summary_text) {
+        await supabase.from("summaries").upsert(
+          {
+            message_id: message.id,
+            summary_text: aiTriage.result.summary_text,
+            extracted_items: aiTriage.result.extracted_items || [],
+            model: aiTriage.model,
+            prompt_version: aiTriage.promptVersion,
+            created_at: new Date().toISOString(),
+          },
+          { onConflict: "message_id" }
+        );
+
+        await supabase
+          .from("email_messages")
+          .update({ processing_status: "SUMMARY_READY" })
+          .eq("id", message.id);
+
+        return {
+          success: true,
+          nextStage: "delivery", // Bypass the 2nd AI call completely!
+          messageStatus: "SUMMARY_READY",
+        };
+      }
+
       await supabase
         .from("email_messages")
         .update({ processing_status: "SUMMARIZING" })
@@ -253,6 +338,40 @@ export async function executeSummaryStage(
   message: EmailMessageRecord
 ): Promise<StageResult> {
   try {
+    // 1. Check if user has Ingestion-Only mode active
+    const { data: userSettings } = await supabase
+      .from("user_settings")
+      .select("notification_preferences")
+      .eq("user_id", message.user_id)
+      .maybeSingle();
+
+    const isProcessingDisabled = Boolean(
+      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    );
+
+    if (isProcessingDisabled) {
+      return {
+        success: true,
+        nextStage: null,
+        messageStatus: "RECEIVED",
+      };
+    }
+
+    // 2. Check if summary was already generated during the single-pass triage stage
+    const { data: existingSummary } = await supabase
+      .from("summaries")
+      .select("id")
+      .eq("message_id", message.id)
+      .maybeSingle();
+
+    if (existingSummary) {
+      return {
+        success: true,
+        nextStage: "delivery",
+        messageStatus: "SUMMARY_READY",
+      };
+    }
+
     const { summarizeEmailWithAi } = await import("@/modules/ai/prompts/summary");
 
     const aiSummary = await summarizeEmailWithAi({
@@ -321,6 +440,16 @@ export async function executeDeliveryStage(
     .select("whatsapp_destination, importance_threshold, notification_preferences")
     .eq("user_id", message.user_id)
     .maybeSingle();
+
+  const prefs = (userSettings?.notification_preferences as Record<string, unknown>) || {};
+  if (prefs.disable_processing) {
+    // Ingestion-only mode: do not send any WhatsApp messages
+    return {
+      success: true,
+      nextStage: null,
+      messageStatus: "INGESTED",
+    };
+  }
 
   // 2. Fetch the summary and triage results
   const { data: summaryRecord } = await supabase

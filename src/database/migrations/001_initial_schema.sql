@@ -44,6 +44,8 @@ create table if not exists email_messages (
   ingested_at timestamptz not null default now(),
   dedupe_key text not null,
   has_attachments boolean not null default false,
+  -- Native Gmail label IDs (e.g. INBOX, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, IMPORTANT)
+  labels text[] not null default '{}',
   processing_status text not null default 'RECEIVED'
     check (processing_status in (
       'RECEIVED', 'PRE_FILTERED', 'TRIAGED', 'DISCARDED', 'SUMMARIZING',
@@ -143,6 +145,7 @@ create index if not exists email_accounts_user_idx on email_accounts (user_id);
 create index if not exists email_messages_account_received_idx on email_messages (account_id, received_at desc);
 create index if not exists email_messages_user_received_idx on email_messages (user_id, received_at desc);
 create index if not exists email_messages_status_received_idx on email_messages (processing_status, received_at desc);
+create index if not exists email_messages_labels_idx on email_messages using gin (labels);
 create index if not exists processing_jobs_pending_idx on processing_jobs (status, next_retry_at);
 create index if not exists delivery_attempts_message_idx on delivery_attempts (message_id, created_at desc);
 create index if not exists system_events_user_idx on system_events (user_id, occurred_at desc);

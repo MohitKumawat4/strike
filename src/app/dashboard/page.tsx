@@ -86,6 +86,7 @@ export default async function DashboardPage() {
         raw_body_retention_days: userSettings.raw_body_retention_days ? Number(userSettings.raw_body_retention_days) : 30,
         notify_on_important: (userSettings.notification_preferences as { notify_on_important?: boolean } | null)?.notify_on_important ?? true,
         notify_on_failure: (userSettings.notification_preferences as { notify_on_failure?: boolean } | null)?.notify_on_failure ?? true,
+        disable_processing: Boolean((userSettings.notification_preferences as { disable_processing?: boolean } | null)?.disable_processing),
         custom_priority_rules: (userSettings.custom_priority_rules as {
           instructions?: string;
           vipSenders?: string[];
