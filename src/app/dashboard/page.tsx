@@ -1,3 +1,4 @@
+import { getPipelineControls } from "@/common/pipeline-controls";
 import { redirect } from "next/navigation";
 
 import { isSupabaseConfigured } from "@/config/supabase";
@@ -81,6 +82,7 @@ export default async function DashboardPage() {
   // Map user settings with notification preferences and custom AI priority rules
   const mappedUserSettings = userSettings
     ? {
+        pipeline: getPipelineControls(userSettings.notification_preferences),
         whatsapp_destination: userSettings.whatsapp_destination,
         importance_threshold: userSettings.importance_threshold ? Number(userSettings.importance_threshold) : 0.70,
         raw_body_retention_days: userSettings.raw_body_retention_days ? Number(userSettings.raw_body_retention_days) : 30,

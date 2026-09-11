@@ -1,3 +1,4 @@
+import { getPipelineControls, afterResume } from "@/common/pipeline-controls";
 import { google } from "googleapis";
 import { getGoogleOAuthClient } from "@/modules/email/providers/gmail/gmail.client";
 import { decryptToken } from "@/common/crypto/encryption";
@@ -33,14 +34,15 @@ function decodeBase64Payload(data?: string): string {
 /**
  * Recursively inspects a Gmail MIME part hierarchy to extract clean plain text and raw HTML.
  */
-export function extractCleanEmailContent(payload: any, fallbackSnippet: string = ""): {
+type MailPart = { mimeType?: string | null; body?: { data?: string | null } | null; parts?: MailPart[] | null };
+export function extractCleanEmailContent(payload: MailPart | null | undefined, fallbackSnippet: string = ""): {
   bodyText: string;
   bodyHtml?: string;
 } {
   let plain = "";
   let html = "";
 
-  function traverse(part: any) {
+  function traverse(part: MailPart | null | undefined) {
     if (!part) return;
 
     const mime = (part.mimeType || "").toLowerCase();
@@ -132,6 +134,10 @@ export async function performInitialSync(
   supabase: SupabaseClient,
   { accountId, userId, encryptedRefreshToken, maxMessages = 100 }: SyncAccountParams
 ): Promise<SyncResult> {
+  const { data: userSettings, error: settingsError } = await supabase.from("user_settings").select("notification_preferences").eq("user_id", userId).maybeSingle();
+  if (settingsError) throw settingsError;
+  const prefs = (userSettings?.notification_preferences ?? {}) as Record<string, unknown>;
+  if (!getPipelineControls(prefs).receive_emails) return { syncedCount: 0, todayCount: 0, historicalCount: 0, historicalMessages: [] };
   const refreshToken = decryptToken(encryptedRefreshToken);
   const oauth2Client = getGoogleOAuthClient();
   oauth2Client.setCredentials({ refresh_token: refreshToken });
@@ -160,17 +166,6 @@ export async function performInitialSync(
   const historicalMessages: SyncedHistoricalMessage[] = [];
   const now = new Date();
 
-  // Check if user has enabled Ingestion-Only mode (bypasses AI pipeline and WhatsApp delivery)
-  const { data: userSettings } = await supabase
-    .from("user_settings")
-    .select("notification_preferences")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  const isProcessingDisabled = Boolean(
-    (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
-  );
-
   // 2. Fetch and parse each message
   for (const item of messageList) {
     if (!item.id) continue;
@@ -196,7 +191,8 @@ export async function performInitialSync(
       const rawSender = getHeader("From") || "Unknown Sender";
       const toHeader = getHeader("To") || "";
       const dateHeader = getHeader("Date");
-      const receivedAt = dateHeader ? new Date(dateHeader) : new Date();
+      const receivedAt = new Date(Number(message.internalDate) || Date.parse(dateHeader) || Date.now());
+      if (!afterResume(receivedAt.toISOString(), prefs.receive_after)) continue;
 
       // Decode HTML entities in metadata fields
       const subject = decodeHtmlEntities(rawSubject);
@@ -237,22 +233,23 @@ export async function performInitialSync(
               message.payload?.parts?.some((part) => part.filename && part.filename.length > 0)
             ),
             labels: labelIds,
-            processing_status: isToday ? "RECEIVED" : "COMPLETED",
+            processing_status: isToday ? "RECEIVED" : "TRIAGED",
           },
           {
             onConflict: "account_id,provider_message_id",
+            ignoreDuplicates: true,
           }
         )
         .select("id")
-        .single();
+        .maybeSingle();
 
       if (!insertError && insertedMsg) {
         syncedCount++;
 
         if (isToday) {
           todayCount++;
-          // Queue pending ingestion job only if Ingestion-Only mode is NOT active
-          if (!isProcessingDisabled) {
+          // The shared stage handlers decide which layers to run.
+          {
             await supabase.from("processing_jobs").upsert(
               {
                 message_id: insertedMsg.id,
@@ -277,8 +274,8 @@ export async function performInitialSync(
             snippet,
           });
 
-          // Insert default classification for historical email so it populates stats
-          await supabase.from("ai_results").upsert(
+          // Retain existing historical classification only in AI mode.
+          if (getPipelineControls(prefs).use_ai) await supabase.from("ai_results").upsert(
             {
               message_id: insertedMsg.id,
               category: "normal",

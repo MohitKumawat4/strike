@@ -1,5 +1,6 @@
 "use client";
 
+import { saveUserSettings } from "@/database/user-settings";
 import ui from "./modern-tabs.module.css";
 
 import { useEffect, useState } from "react";
@@ -12,7 +13,6 @@ import {
   MessageSquare,
   Moon,
   Plus,
-  PowerOff,
   Send,
   Settings2,
   Shield,
@@ -25,7 +25,6 @@ import {
   X,
 } from "lucide-react";
 
-import { ConfirmModal } from "../confirm-modal";
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
 import type { UserSettings } from "../dashboard-shell";
 
@@ -63,13 +62,18 @@ const COUNTRY_CODES = [
   { code: "+977", label: "Nepal (+977)", flag: "🇳🇵" },
 ];
 
-function parseInitialPhone(raw: string | null | undefined): { code: string; number: string } {
+function parseInitialPhone(raw: string | null | undefined): {
+  code: string;
+  number: string;
+} {
   if (!raw) return { code: "+91", number: "" };
   const cleaned = raw.trim();
   const withPlus = cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
 
   // Sort country codes by descending code length to match longest prefix first (+971 before +9)
-  const sorted = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
+  const sorted = [...COUNTRY_CODES].sort(
+    (a, b) => b.code.length - a.code.length,
+  );
   const matched = sorted.find((c) => withPlus.startsWith(c.code));
   if (matched) {
     return {
@@ -86,12 +90,18 @@ function parseInitialPhone(raw: string | null | undefined): { code: string; numb
 }
 
 type SettingsTabProps = {
+  onOpenProcessing?: () => void;
   email: string;
   userSettings: UserSettings | null;
   onUpdateUserSettings?: (settings: UserSettings) => void;
 };
 
-export function SettingsTab({ email, userSettings, onUpdateUserSettings }: SettingsTabProps) {
+export function SettingsTab({
+  onOpenProcessing,
+  email,
+  userSettings,
+  onUpdateUserSettings,
+}: SettingsTabProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -101,37 +111,34 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
   const [countryCode, setCountryCode] = useState(initialPhone.code);
   const [phoneNumber, setPhoneNumber] = useState(initialPhone.number);
   const [savedDestination, setSavedDestination] = useState<string | null>(
-    userSettings?.whatsapp_destination ?? null
+    userSettings?.whatsapp_destination ?? null,
   );
 
   const [importanceThreshold, setImportanceThreshold] = useState(
-    userSettings?.importance_threshold ?? 0.5
+    userSettings?.importance_threshold ?? 0.5,
   );
   const [retentionDays, setRetentionDays] = useState(
-    userSettings?.raw_body_retention_days ?? 30
+    userSettings?.raw_body_retention_days ?? 30,
   );
   const [notifyImportant, setNotifyImportant] = useState(
-    userSettings?.notify_on_important ?? true
+    userSettings?.notify_on_important ?? true,
   );
   const [notifyFailures, setNotifyFailures] = useState(
-    userSettings?.notify_on_failure ?? true
+    userSettings?.notify_on_failure ?? true,
   );
   const [disableProcessing, setDisableProcessing] = useState(
-    userSettings?.disable_processing ?? false
+    userSettings?.disable_processing ?? false,
   );
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [pendingProcessingState, setPendingProcessingState] = useState<boolean | null>(null);
-  const [isTogglingProcessing, setIsTogglingProcessing] = useState(false);
 
   /* Custom AI Priority Rules State */
   const [customInstructions, setCustomInstructions] = useState(
-    userSettings?.custom_priority_rules?.instructions ?? ""
+    userSettings?.custom_priority_rules?.instructions ?? "",
   );
   const [vipSenders, setVipSenders] = useState<string[]>(
-    userSettings?.custom_priority_rules?.vipSenders ?? []
+    userSettings?.custom_priority_rules?.vipSenders ?? [],
   );
   const [ignoreKeywords, setIgnoreKeywords] = useState<string[]>(
-    userSettings?.custom_priority_rules?.ignoreKeywords ?? []
+    userSettings?.custom_priority_rules?.ignoreKeywords ?? [],
   );
   const [vipInput, setVipInput] = useState("");
   const [ignoreInput, setIgnoreInput] = useState("");
@@ -142,10 +149,15 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
 
   /* Test WhatsApp delivery state */
   const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
-  const [testResult, setTestResult] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    success?: boolean;
+    message?: string;
+  } | null>(null);
 
   /* Derived full international E.164 phone string */
-  const fullWhatsappDestination = phoneNumber.trim() ? `${countryCode}${phoneNumber.trim()}` : "";
+  const fullWhatsappDestination = phoneNumber.trim()
+    ? `${countryCode}${phoneNumber.trim()}`
+    : "";
 
   /* Sync state whenever userSettings prop updates from server */
   useEffect(() => {
@@ -170,9 +182,13 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         setDisableProcessing(userSettings.disable_processing);
       }
       if (userSettings.custom_priority_rules) {
-        setCustomInstructions(userSettings.custom_priority_rules.instructions ?? "");
+        setCustomInstructions(
+          userSettings.custom_priority_rules.instructions ?? "",
+        );
         setVipSenders(userSettings.custom_priority_rules.vipSenders ?? []);
-        setIgnoreKeywords(userSettings.custom_priority_rules.ignoreKeywords ?? []);
+        setIgnoreKeywords(
+          userSettings.custom_priority_rules.ignoreKeywords ?? [],
+        );
       }
     }
   }, [userSettings]);
@@ -217,24 +233,22 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
     setIsDisconnecting(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (user) {
-        await supabase.from("user_settings").upsert(
-          {
-            user_id: user.id,
-            whatsapp_destination: null,
-            importance_threshold: importanceThreshold,
-            raw_body_retention_days: retentionDays,
-            notification_preferences: {
-              notify_on_important: notifyImportant,
-              notify_on_failure: notifyFailures,
-              disable_processing: disableProcessing,
-            },
-            updated_at: new Date().toISOString(),
+        await saveUserSettings(supabase, {
+          user_id: user.id,
+          whatsapp_destination: null,
+          importance_threshold: importanceThreshold,
+          raw_body_retention_days: retentionDays,
+          notification_preferences: {
+            notify_on_important: notifyImportant,
+            notify_on_failure: notifyFailures,
           },
-          { onConflict: "user_id" }
-        );
+          updated_at: new Date().toISOString(),
+        });
       }
 
       setSavedDestination(null);
@@ -258,76 +272,13 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
     }
   }
 
-  /* Trigger confirmation dialog when user interacts with Ingestion-Only toggle */
-  function handlePromptToggleProcessing(targetState: boolean) {
-    setPendingProcessingState(targetState);
-    setIsConfirmModalOpen(true);
-  }
-
-  /* Apply Ingestion-Only mode toggle after explicit user confirmation */
-  async function handleConfirmToggleProcessing() {
-    if (pendingProcessingState === null) return;
-    setIsTogglingProcessing(true);
-    const targetState = pendingProcessingState;
-
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (user) {
-        const rulesObj = {
-          instructions: customInstructions.trim(),
-          vipSenders,
-          ignoreKeywords,
-        };
-
-        await supabase.from("user_settings").upsert(
-          {
-            user_id: user.id,
-            whatsapp_destination: fullWhatsappDestination || null,
-            importance_threshold: importanceThreshold,
-            raw_body_retention_days: retentionDays,
-            notification_preferences: {
-              notify_on_important: notifyImportant,
-              notify_on_failure: notifyFailures,
-              disable_processing: targetState,
-            },
-            custom_priority_rules: rulesObj,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id" }
-        );
-      }
-
-      setDisableProcessing(targetState);
-      onUpdateUserSettings?.({
-        importance_threshold: importanceThreshold,
-        raw_body_retention_days: retentionDays,
-        notify_on_important: notifyImportant,
-        notify_on_failure: notifyFailures,
-        whatsapp_destination: fullWhatsappDestination || null,
-        custom_priority_rules: {
-          instructions: customInstructions.trim(),
-          vipSenders,
-          ignoreKeywords,
-        },
-        disable_processing: targetState,
-      });
-
-      setIsConfirmModalOpen(false);
-      setPendingProcessingState(null);
-      router.refresh();
-    } catch (err) {
-      console.error("Failed to toggle ingestion-only mode:", err);
-    } finally {
-      setIsTogglingProcessing(false);
-    }
-  }
-
   /* Send Test WhatsApp Notification & Auto-Persist on Success */
   async function handleTestWhatsApp() {
     if (!phoneNumber.trim()) {
-      setTestResult({ success: false, message: "Please enter your WhatsApp phone number first." });
+      setTestResult({
+        success: false,
+        message: "Please enter your WhatsApp phone number first.",
+      });
       return;
     }
 
@@ -343,13 +294,21 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
 
       const data = await res.json();
       if (!res.ok) {
-        setTestResult({ success: false, message: data.error || "Failed to send test message." });
+        setTestResult({
+          success: false,
+          message: data.error || "Failed to send test message.",
+        });
       } else {
-        setTestResult({ success: true, message: `Test alert sent to ${fullWhatsappDestination}!` });
+        setTestResult({
+          success: true,
+          message: `Test alert sent to ${fullWhatsappDestination}!`,
+        });
 
         // Auto-save destination to Supabase so it immediately persists on refresh
         const supabase = createSupabaseBrowserClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (user) {
           const rulesObj = {
             instructions: customInstructions.trim(),
@@ -357,22 +316,18 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
             ignoreKeywords,
           };
 
-          await supabase.from("user_settings").upsert(
-            {
-              user_id: user.id,
-              whatsapp_destination: fullWhatsappDestination,
-              importance_threshold: importanceThreshold,
-              raw_body_retention_days: retentionDays,
-              notification_preferences: {
-                notify_on_important: notifyImportant,
-                notify_on_failure: notifyFailures,
-                disable_processing: disableProcessing,
-              },
-              custom_priority_rules: rulesObj,
-              updated_at: new Date().toISOString(),
+          await saveUserSettings(supabase, {
+            user_id: user.id,
+            whatsapp_destination: fullWhatsappDestination,
+            importance_threshold: importanceThreshold,
+            raw_body_retention_days: retentionDays,
+            notification_preferences: {
+              notify_on_important: notifyImportant,
+              notify_on_failure: notifyFailures,
             },
-            { onConflict: "user_id" }
-          );
+            custom_priority_rules: rulesObj,
+            updated_at: new Date().toISOString(),
+          });
 
           setSavedDestination(fullWhatsappDestination);
           onUpdateUserSettings?.({
@@ -382,13 +337,15 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
             notify_on_failure: notifyFailures,
             whatsapp_destination: fullWhatsappDestination,
             custom_priority_rules: rulesObj,
-            disable_processing: disableProcessing,
           });
           router.refresh();
         }
       }
     } catch (err: unknown) {
-      setTestResult({ success: false, message: err instanceof Error ? err.message : "Network error" });
+      setTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Network error",
+      });
     } finally {
       setIsTestingWhatsApp(false);
     }
@@ -401,7 +358,9 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) return;
 
@@ -411,22 +370,18 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         ignoreKeywords,
       };
 
-      const { error } = await supabase.from("user_settings").upsert(
-        {
-          user_id: user.id,
-          whatsapp_destination: fullWhatsappDestination || null,
-          importance_threshold: importanceThreshold,
-          raw_body_retention_days: retentionDays,
-          notification_preferences: {
-            notify_on_important: notifyImportant,
-            notify_on_failure: notifyFailures,
-            disable_processing: disableProcessing,
-          },
-          custom_priority_rules: rulesObj,
-          updated_at: new Date().toISOString(),
+      const { error } = await saveUserSettings(supabase, {
+        user_id: user.id,
+        whatsapp_destination: fullWhatsappDestination || null,
+        importance_threshold: importanceThreshold,
+        raw_body_retention_days: retentionDays,
+        notification_preferences: {
+          notify_on_important: notifyImportant,
+          notify_on_failure: notifyFailures,
         },
-        { onConflict: "user_id" }
-      );
+        custom_priority_rules: rulesObj,
+        updated_at: new Date().toISOString(),
+      });
 
       if (error) {
         console.error("Failed to save settings:", error);
@@ -474,12 +429,16 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         {[
           ["settings-profile", "Profile"],
           ["settings-appearance", "Appearance"],
-          ["settings-ingestion-only", "Ingestion Mode"],
+          ["settings-ingestion-only", "Pipeline"],
           ["settings-preferences", "Processing"],
           ["settings-rules", "AI rules"],
           ["whatsapp-settings", "WhatsApp"],
           ["settings-notifications", "Notifications"],
-        ].map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+        ].map(([id, label]) => (
+          <a key={id} href={`#${id}`}>
+            {label}
+          </a>
+        ))}
       </nav>
       {/* Profile Card */}
       <div className="panel settings-section" id="settings-profile">
@@ -530,71 +489,22 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         </div>
       </div>
 
-      {/* Dedicated Section: Ingestion-Only Mode (Kill Switch) */}
       <div className="panel settings-section" id="settings-ingestion-only">
-        <div className="settings-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <PowerOff size={18} />
-            <h2>Ingestion-Only Mode</h2>
-          </div>
-          <span style={{
-            fontSize: "11.5px",
-            fontWeight: 650,
-            padding: "3px 10px",
-            borderRadius: "999px",
-            background: disableProcessing ? "rgba(234, 179, 8, 0.12)" : "rgba(34, 197, 94, 0.12)",
-            color: disableProcessing ? "#ca8a04" : "#16a34a",
-            border: `1px solid ${disableProcessing ? "rgba(234, 179, 8, 0.3)" : "rgba(34, 197, 94, 0.3)"}`,
-          }}>
-            {disableProcessing ? "Ingestion-Only Active (AI & WhatsApp Paused)" : "Pipeline Active (AI & WhatsApp Live)"}
-          </span>
+        <div className="settings-section-header">
+          <Settings2 size={18} />
+          <h2>Pipeline controls</h2>
         </div>
-
-        <div className="settings-row" style={{ alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "16px" }}>
-          <div className="settings-row-label" style={{ maxWidth: "480px" }}>
-            <strong>Pause AI Processing & WhatsApp Delivery</strong>
-            <span>
-              When enabled, Strike strictly ingests and stores incoming emails in your dashboard. Email filtration, noise reduction, AI summarization, and WhatsApp notifications are completely halted.
-            </span>
-          </div>
-          <label className="settings-toggle" style={{ marginLeft: "auto" }}>
-            <input
-              aria-label="Toggle Ingestion-Only Mode"
-              checked={disableProcessing}
-              onChange={() => handlePromptToggleProcessing(!disableProcessing)}
-              type="checkbox"
-            />
-            <span className="settings-toggle-slider" />
-          </label>
-        </div>
-
-        {/* Informational Callout */}
-        <div style={{
-          marginTop: "14px",
-          padding: "14px 16px",
-          borderRadius: "10px",
-          background: disableProcessing ? "rgba(234, 179, 8, 0.08)" : "var(--surface-muted)",
-          border: "1px solid var(--line)",
-          fontSize: "12.5px",
-          color: "var(--ink)",
-          lineHeight: 1.55,
-        }}>
-          {disableProcessing ? (
-            <div>
-              <strong style={{ color: "#ca8a04" }}>⚡ Ingestion-Only Mode is currently ON:</strong>
-              <p style={{ margin: "4px 0 0 0", color: "var(--muted)" }}>
-                Incoming emails will be stored for dashboard viewing, but Gemini AI triage, executive summarization, and WhatsApp delivery are disabled. No WhatsApp messages will be sent to your phone.
-              </p>
-            </div>
-          ) : (
-            <div>
-              <strong style={{ color: "var(--brand-plum)" }}>ℹ️ Normal Pipeline Operation:</strong>
-              <p style={{ margin: "4px 0 0 0", color: "var(--muted)" }}>
-                Incoming emails pass through noise reduction and single-pass AI triage. High-importance emails generate executive summaries and are dispatched to your WhatsApp in real time.
-              </p>
-            </div>
-          )}
-        </div>
+        <p className="muted-text">
+          Receiving, filtering, AI, and WhatsApp controls are now in the
+          Processing tab. Your existing preferences are preserved.
+        </p>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={onOpenProcessing}
+        >
+          Open Processing
+        </button>
       </div>
 
       {/* Processing Preferences */}
@@ -616,20 +526,38 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               className="settings-slider"
               max="1"
               min="0"
-              onChange={(e) => setImportanceThreshold(parseFloat(e.target.value))}
+              onChange={(e) =>
+                setImportanceThreshold(parseFloat(e.target.value))
+              }
               step="0.05"
               type="range"
               value={importanceThreshold}
             />
-            <span className="settings-slider-value">{(importanceThreshold * 100).toFixed(0)}%</span>
+            <span className="settings-slider-value">
+              {(importanceThreshold * 100).toFixed(0)}%
+            </span>
           </div>
         </div>
 
         <div className={ui.policyPreview}>
           <span className={ui.overline}>YOUR PRIORITY LENS</span>
-          <div className={ui.policyScale}><i style={{ width: `${importanceThreshold * 100}%` }} /><span style={{ left: `${importanceThreshold * 100}%` }} /></div>
-          <div className={ui.policyLabels}><span>More inclusive</span><strong>{(importanceThreshold * 100).toFixed(0)}% threshold</strong><span>More selective</span></div>
-          <p>{importanceThreshold < .4 ? "A broader range of emails can qualify for priority attention." : importanceThreshold < .75 ? "Keep a balanced focus on emails with stronger importance signals." : "Focus on emails with the strongest importance scores."} Your VIP and custom rules also inform triage.</p>
+          <div className={ui.policyScale}>
+            <i style={{ width: `${importanceThreshold * 100}%` }} />
+            <span style={{ left: `${importanceThreshold * 100}%` }} />
+          </div>
+          <div className={ui.policyLabels}>
+            <span>More inclusive</span>
+            <strong>{(importanceThreshold * 100).toFixed(0)}% threshold</strong>
+            <span>More selective</span>
+          </div>
+          <p>
+            {importanceThreshold < 0.4
+              ? "A broader range of emails can qualify for priority attention."
+              : importanceThreshold < 0.75
+                ? "Keep a balanced focus on emails with stronger importance signals."
+                : "Focus on emails with the strongest importance scores."}{" "}
+            Your VIP and custom rules also inform triage.
+          </p>
         </div>
         {/* Retention Days */}
         <div className="settings-row">
@@ -643,7 +571,9 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               className="settings-number-input"
               max="365"
               min="1"
-              onChange={(e) => setRetentionDays(parseInt(e.target.value, 10) || 30)}
+              onChange={(e) =>
+                setRetentionDays(parseInt(e.target.value, 10) || 30)
+              }
               type="number"
               value={retentionDays}
             />
@@ -654,33 +584,62 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
 
       {/* Custom AI Triage & Priority Rules */}
       <div className="panel settings-section" id="settings-rules">
-        <div className="settings-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+        <div
+          className="settings-section-header"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Sliders size={18} />
             <h2>AI Triage & Priority Rules</h2>
           </div>
-          <span style={{
-            fontSize: "11.5px",
-            fontWeight: 650,
-            padding: "3px 10px",
-            borderRadius: "999px",
-            background: "rgba(80, 45, 85, 0.08)",
-            color: "var(--brand-plum)",
-            border: "1px solid var(--line)",
-          }}>
+          <span
+            style={{
+              fontSize: "11.5px",
+              fontWeight: 650,
+              padding: "3px 10px",
+              borderRadius: "999px",
+              background: "rgba(80, 45, 85, 0.08)",
+              color: "var(--brand-plum)",
+              border: "1px solid var(--line)",
+            }}
+          >
             Active in AI Pipeline
           </span>
         </div>
 
-        <p style={{ fontSize: "13px", color: "var(--muted)", margin: "4px 0 16px 0", lineHeight: 1.5 }}>
-          Personalize the AI classifier to your exact workflow. These rules are injected directly into Gemini & OpenAI triage prompts.
+        <p
+          style={{
+            fontSize: "13px",
+            color: "var(--muted)",
+            margin: "4px 0 16px 0",
+            lineHeight: 1.5,
+          }}
+        >
+          Personalize the AI classifier to your exact workflow. These rules are
+          injected directly into Gemini & OpenAI triage prompts.
         </p>
 
         {/* 1. Custom Prompt Guidance */}
-        <div className="settings-row" style={{ alignItems: "flex-start", borderBottom: "1px solid var(--line)", paddingBottom: "18px" }}>
+        <div
+          className="settings-row"
+          style={{
+            alignItems: "flex-start",
+            borderBottom: "1px solid var(--line)",
+            paddingBottom: "18px",
+          }}
+        >
           <div className="settings-row-label" style={{ maxWidth: "340px" }}>
             <strong>Custom Prompt Guidance</strong>
-            <span>Describe what emails are high priority vs. low priority in your own words.</span>
+            <span>
+              Describe what emails are high priority vs. low priority in your
+              own words.
+            </span>
           </div>
           <div style={{ flex: 1, minWidth: "260px" }}>
             <textarea
@@ -706,10 +665,20 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         </div>
 
         {/* 2. VIP Senders & Domains */}
-        <div className="settings-row" style={{ alignItems: "flex-start", borderBottom: "1px solid var(--line)", paddingBottom: "18px" }}>
+        <div
+          className="settings-row"
+          style={{
+            alignItems: "flex-start",
+            borderBottom: "1px solid var(--line)",
+            paddingBottom: "18px",
+          }}
+        >
           <div className="settings-row-label" style={{ maxWidth: "340px" }}>
             <strong>VIP Senders & Domains</strong>
-            <span>Senders or domains (e.g. boss@company.com, stripe.com, google.com) always marked Important.</span>
+            <span>
+              Senders or domains (e.g. boss@company.com, stripe.com, google.com)
+              always marked Important.
+            </span>
           </div>
           <div style={{ flex: 1, minWidth: "260px" }}>
             <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
@@ -798,7 +767,13 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
                   </span>
                 ))
               ) : (
-                <span style={{ fontSize: "12px", color: "var(--muted-light)", fontStyle: "italic" }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--muted-light)",
+                    fontStyle: "italic",
+                  }}
+                >
                   No VIP senders added yet.
                 </span>
               )}
@@ -810,7 +785,10 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
         <div className="settings-row" style={{ alignItems: "flex-start" }}>
           <div className="settings-row-label" style={{ maxWidth: "340px" }}>
             <strong>Ignore / Low Priority Keywords</strong>
-            <span>Emails with these subject words (e.g. webinar, newsletter, digest) will be deprioritized.</span>
+            <span>
+              Emails with these subject words (e.g. webinar, newsletter, digest)
+              will be deprioritized.
+            </span>
           </div>
           <div style={{ flex: 1, minWidth: "260px" }}>
             <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
@@ -899,7 +877,13 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
                   </span>
                 ))
               ) : (
-                <span style={{ fontSize: "12px", color: "var(--muted-light)", fontStyle: "italic" }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--muted-light)",
+                    fontStyle: "italic",
+                  }}
+                >
                   No ignore keywords added yet.
                 </span>
               )}
@@ -910,59 +894,89 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
 
       {/* WhatsApp Delivery Configuration */}
       <div className="panel settings-section" id="whatsapp-settings">
-        <div className="settings-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+        <div
+          className="settings-section-header"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <MessageSquare size={18} />
             <h2>WhatsApp Instant Delivery</h2>
           </div>
-          <span style={{
-            fontSize: "11.5px",
-            fontWeight: 650,
-            padding: "3px 10px",
-            borderRadius: "999px",
-            background: "var(--surface-muted)",
-            color: "var(--muted)",
-            border: "1px solid var(--line)",
-          }}>
+          <span
+            style={{
+              fontSize: "11.5px",
+              fontWeight: 650,
+              padding: "3px 10px",
+              borderRadius: "999px",
+              background: "var(--surface-muted)",
+              color: "var(--muted)",
+              border: "1px solid var(--line)",
+            }}
+          >
             1 Active Recipient Allowed
           </span>
         </div>
 
         {/* Active Connected Number Status Card */}
         {savedDestination ? (
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "12px 16px",
-            borderRadius: "10px",
-            background: "rgba(34, 197, 94, 0.08)",
-            border: "1px solid rgba(34, 197, 94, 0.25)",
-            marginTop: "14px",
-            marginBottom: "16px",
-            flexWrap: "wrap",
-            gap: "12px",
-          }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderRadius: "10px",
+              background: "rgba(34, 197, 94, 0.08)",
+              border: "1px solid rgba(34, 197, 94, 0.25)",
+              marginTop: "14px",
+              marginBottom: "16px",
+              flexWrap: "wrap",
+              gap: "12px",
+            }}
+          >
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <div style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "50%",
-                background: "rgba(34, 197, 94, 0.2)",
-                color: "#16a34a",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}>
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: "rgba(34, 197, 94, 0.2)",
+                  color: "#16a34a",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
                 <CheckCircle2 size={16} />
               </div>
               <div>
-                <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--ink)" }}>
-                  Connected Recipient: <span style={{ color: "#16a34a", fontFamily: "var(--font-mono, monospace)" }}>{savedDestination}</span>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                  }}
+                >
+                  Connected Recipient:{" "}
+                  <span
+                    style={{
+                      color: "#16a34a",
+                      fontFamily: "var(--font-mono, monospace)",
+                    }}
+                  >
+                    {savedDestination}
+                  </span>
                 </div>
                 <div style={{ fontSize: "11.5px", color: "var(--muted)" }}>
-                  Automated AI email triage and priority briefs are actively delivered to this number.
+                  Automated AI email triage and priority briefs are actively
+                  delivered to this number.
                 </div>
               </div>
             </div>
@@ -984,31 +998,52 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               title="Remove this WhatsApp number from receiving alerts"
             >
               <Trash2 size={13} />
-              <span>{isDisconnecting ? "Disconnecting…" : "Disconnect Number"}</span>
+              <span>
+                {isDisconnecting ? "Disconnecting…" : "Disconnect Number"}
+              </span>
             </button>
           </div>
         ) : (
-          <div style={{
-            padding: "10px 14px",
-            borderRadius: "10px",
-            background: "rgba(80, 45, 85, 0.05)",
-            border: "1px solid var(--line)",
-            marginTop: "14px",
-            marginBottom: "16px",
-            fontSize: "12.5px",
-            color: "var(--muted)",
-          }}>
-            ⚪ <strong>No active WhatsApp recipient configured.</strong> Enter your number below to receive instant AI email summaries.
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: "10px",
+              background: "rgba(80, 45, 85, 0.05)",
+              border: "1px solid var(--line)",
+              marginTop: "14px",
+              marginBottom: "16px",
+              fontSize: "12.5px",
+              color: "var(--muted)",
+            }}
+          >
+            ⚪ <strong>No active WhatsApp recipient configured.</strong> Enter
+            your number below to receive instant AI email summaries.
           </div>
         )}
 
         {/* Number Input / Change Row */}
         <div className="settings-row">
           <div className="settings-row-label">
-            <strong>{savedDestination ? "Change Recipient Number" : "Recipient Mobile Number"}</strong>
-            <span>Select country code and enter your WhatsApp mobile number</span>
+            <strong>
+              {savedDestination
+                ? "Change Recipient Number"
+                : "Recipient Mobile Number"}
+            </strong>
+            <span>
+              Select country code and enter your WhatsApp mobile number
+            </span>
           </div>
-          <div className="settings-input-group" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", width: "100%", maxWidth: "520px" }}>
+          <div
+            className="settings-input-group"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px",
+              alignItems: "center",
+              width: "100%",
+              maxWidth: "520px",
+            }}
+          >
             {/* Country code selector */}
             <select
               aria-label="Country Code"
@@ -1039,7 +1074,9 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
             <input
               aria-label="WhatsApp Phone Number"
               className="text-input"
-              onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) =>
+                setPhoneNumber(e.target.value.replace(/\D/g, ""))
+              }
               placeholder="9876543210"
               style={{
                 background: "var(--surface-muted)",
@@ -1075,7 +1112,10 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
                 height: "40px",
                 minHeight: "40px",
                 margin: 0,
-                cursor: isTestingWhatsApp || !phoneNumber.trim() ? "not-allowed" : "pointer",
+                cursor:
+                  isTestingWhatsApp || !phoneNumber.trim()
+                    ? "not-allowed"
+                    : "pointer",
                 boxSizing: "border-box",
                 flexShrink: 0,
               }}
@@ -1083,15 +1123,27 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               title="Send Welcome Onboarding Brief to your WhatsApp and connect"
             >
               <Send size={13} />
-              <span>{isTestingWhatsApp ? "Sending Brief…" : "Send Welcome Brief"}</span>
+              <span>
+                {isTestingWhatsApp ? "Sending Brief…" : "Send Welcome Brief"}
+              </span>
             </button>
           </div>
         </div>
 
         {/* Display live formatted destination preview if filled */}
         {fullWhatsappDestination && (
-          <div style={{ marginTop: "-6px", marginBottom: "12px", fontSize: "12px", color: "var(--muted)" }}>
-            Format: <code style={{ color: "var(--brand-plum)", fontWeight: 600 }}>{fullWhatsappDestination}</code>
+          <div
+            style={{
+              marginTop: "-6px",
+              marginBottom: "12px",
+              fontSize: "12px",
+              color: "var(--muted)",
+            }}
+          >
+            Format:{" "}
+            <code style={{ color: "var(--brand-plum)", fontWeight: 600 }}>
+              {fullWhatsappDestination}
+            </code>
           </div>
         )}
 
@@ -1102,8 +1154,12 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               padding: "10px 14px",
               borderRadius: "8px",
               fontSize: "13px",
-              background: testResult.success ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
-              border: testResult.success ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
+              background: testResult.success
+                ? "rgba(34, 197, 94, 0.1)"
+                : "rgba(239, 68, 68, 0.1)",
+              border: testResult.success
+                ? "1px solid rgba(34, 197, 94, 0.3)"
+                : "1px solid rgba(239, 68, 68, 0.3)",
               color: testResult.success ? "#22c55e" : "#ef4444",
               display: "flex",
               alignItems: "center",
@@ -1111,37 +1167,74 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
               marginBottom: "14px",
             }}
           >
-            {testResult.success ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+            {testResult.success ? (
+              <CheckCircle2 size={15} />
+            ) : (
+              <AlertCircle size={15} />
+            )}
             <span>{testResult.message}</span>
           </div>
         )}
 
         {/* Automated WhatsApp Onboarding & Daily Intelligence Guide */}
-        <div style={{
-          marginTop: "16px",
-          padding: "16px 18px",
-          borderRadius: "12px",
-          background: "linear-gradient(135deg, rgba(80, 45, 85, 0.06) 0%, rgba(147, 80, 115, 0.03) 100%)",
-          border: "1px solid var(--line)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+        <div
+          style={{
+            marginTop: "16px",
+            padding: "16px 18px",
+            borderRadius: "12px",
+            background:
+              "linear-gradient(135deg, rgba(80, 45, 85, 0.06) 0%, rgba(147, 80, 115, 0.03) 100%)",
+            border: "1px solid var(--line)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "8px",
+            }}
+          >
             <Sparkles size={16} style={{ color: "var(--brand-plum)" }} />
             <strong style={{ fontSize: "13px", color: "var(--ink)" }}>
               Zero-Friction WhatsApp Onboarding & Daily Sync
             </strong>
           </div>
-          <p style={{ fontSize: "12px", color: "var(--muted)", margin: "0 0 10px 0", lineHeight: 1.5 }}>
-            Strike delivers AI email triage directly to your WhatsApp using official Meta Utility Templates — no manual &quot;Hi&quot; messages needed.
+          <p
+            style={{
+              fontSize: "12px",
+              color: "var(--muted)",
+              margin: "0 0 10px 0",
+              lineHeight: 1.5,
+            }}
+          >
+            Strike delivers AI email triage directly to your WhatsApp using
+            official Meta Utility Templates — no manual &quot;Hi&quot; messages
+            needed.
           </p>
-          <ol style={{ margin: 0, paddingLeft: "18px", fontSize: "12.5px", color: "var(--ink)", lineHeight: 1.6 }}>
+          <ol
+            style={{
+              margin: 0,
+              paddingLeft: "18px",
+              fontSize: "12.5px",
+              color: "var(--ink)",
+              lineHeight: 1.6,
+            }}
+          >
             <li style={{ marginBottom: "6px" }}>
-              <strong>Enter your number:</strong> Select your country code and enter your WhatsApp mobile number above.
+              <strong>Enter your number:</strong> Select your country code and
+              enter your WhatsApp mobile number above.
             </li>
             <li style={{ marginBottom: "6px" }}>
-              <strong>Send Welcome Brief:</strong> Click <strong>&quot;Send Welcome Brief&quot;</strong> to receive an interactive walkthrough message directly on WhatsApp with quick-reply action buttons.
+              <strong>Send Welcome Brief:</strong> Click{" "}
+              <strong>&quot;Send Welcome Brief&quot;</strong> to receive an
+              interactive walkthrough message directly on WhatsApp with
+              quick-reply action buttons.
             </li>
             <li>
-              <strong>Daily 7:00 AM Briefing:</strong> Strike automatically delivers your morning inbox intelligence every day at 7:00 AM with one-tap actions to keep your briefing stream active.
+              <strong>Daily 7:00 AM Briefing:</strong> Strike automatically
+              delivers your morning inbox intelligence every day at 7:00 AM with
+              one-tap actions to keep your briefing stream active.
             </li>
           </ol>
         </div>
@@ -1187,7 +1280,12 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
 
       {/* Save Button */}
       <div className={`settings-save-row ${ui.saveDock}`}>
-        <div><strong>Your workspace, your way.</strong><span>Save to apply your processing and notification preferences.</span></div>
+        <div>
+          <strong>Your workspace, your way.</strong>
+          <span>
+            Save to apply your processing and notification preferences.
+          </span>
+        </div>
         <button
           className="primary-button"
           disabled={isSaving}
@@ -1220,27 +1318,6 @@ export function SettingsTab({ email, userSettings, onUpdateUserSettings }: Setti
           </button>
         </div>
       </div>
-
-      {/* Confirmation Modal for Ingestion-Only Mode Toggle */}
-      <ConfirmModal
-        isOpen={isConfirmModalOpen}
-        title={
-          pendingProcessingState
-            ? "Pause AI Processing & WhatsApp Delivery?"
-            : "Resume AI Processing & WhatsApp Delivery?"
-        }
-        description={
-          pendingProcessingState
-            ? "This will disable all email filtration, noise reduction, AI summarization, and WhatsApp notifications. Strike will only ingest and store messages in your dashboard. Are you sure you want to proceed?"
-            : "This will re-enable email noise reduction, AI triage scoring, executive summarization, and real-time WhatsApp notifications for important emails. Are you sure you want to resume?"
-        }
-        confirmLabel={pendingProcessingState ? "Yes, Pause Processing" : "Yes, Resume"}
-        cancelLabel={pendingProcessingState ? "No, Keep Active" : "No, Keep Paused"}
-        isDestructive={pendingProcessingState ?? false}
-        isLoading={isTogglingProcessing}
-        onConfirm={handleConfirmToggleProcessing}
-        onClose={() => setIsConfirmModalOpen(false)}
-      />
     </div>
   );
 }

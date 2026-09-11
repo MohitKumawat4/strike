@@ -1,3 +1,6 @@
+import { getPipelineControls, afterResume } from "@/common/pipeline-controls";
+import { formatEmailPreview } from "@/modules/email/email-preview";
+import { saveUserSettings } from "@/database/user-settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logLayerError } from "@/common/logging/layer-logger";
 import { preFilterEmail } from "@/modules/email/rules/pre-filter";
@@ -34,11 +37,18 @@ export type EmailMessageRecord = {
  */
 export async function executeIngestionStage(
   supabase: SupabaseClient,
-  message: EmailMessageRecord
+  message: EmailMessageRecord,
 ): Promise<StageResult> {
   // Validate that the message has essential data
-  if (!message.subject && !message.snippet && !message.body_text) {
-    const errorMsg = "Message payload is empty (missing subject, snippet, and body).";
+  if (
+    !message.subject &&
+    !message.snippet &&
+    !message.body_text &&
+    !message.body_html &&
+    !message.has_attachments
+  ) {
+    const errorMsg =
+      "Message payload is empty (missing subject, snippet, and body).";
     await logLayerError({
       layer: "ingestion",
       severity: "error",
@@ -78,31 +88,35 @@ export async function executeIngestionStage(
  */
 export async function executePreFilterStage(
   supabase: SupabaseClient,
-  message: EmailMessageRecord
+  message: EmailMessageRecord,
 ): Promise<StageResult> {
   try {
     // 1. Check if user has Ingestion-Only mode enabled
-    const { data: userSettings } = await supabase
+    const { data: userSettings, error: settingsError } = await supabase
       .from("user_settings")
       .select("notification_preferences, custom_priority_rules")
       .eq("user_id", message.user_id)
       .maybeSingle();
+    if (settingsError) throw settingsError;
 
-    const isProcessingDisabled = Boolean(
-      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    const controls = getPipelineControls(
+      userSettings?.notification_preferences,
     );
 
-    if (isProcessingDisabled) {
-      // Ingestion-only mode: Halt processing pipeline immediately after ingestion
+    if (!controls.filter_unwanted) {
       return {
         success: true,
-        nextStage: null,
-        messageStatus: "RECEIVED",
+        nextStage: controls.use_ai ? "triage" : "delivery",
+        messageStatus: "PRE_FILTERED",
       };
     }
 
     const customRules = userSettings?.custom_priority_rules as
-      | { instructions?: string; vipSenders?: string[]; ignoreKeywords?: string[] }
+      | {
+          instructions?: string;
+          vipSenders?: string[];
+          ignoreKeywords?: string[];
+        }
       | undefined;
 
     // 2. Deterministic filtration with native Gmail labels & ignore keywords (0 AI tokens)
@@ -160,8 +174,8 @@ export async function executePreFilterStage(
 
     return {
       success: true,
-      nextStage: "triage",
-      messageStatus: "TRIAGED",
+      nextStage: controls.use_ai ? "triage" : "delivery",
+      messageStatus: "PRE_FILTERED",
     };
   } catch (filterErr) {
     await logLayerError({
@@ -178,7 +192,10 @@ export async function executePreFilterStage(
 
     return {
       success: false,
-      error: filterErr instanceof Error ? filterErr.message : "Pre-filter stage error",
+      error:
+        filterErr instanceof Error
+          ? filterErr.message
+          : "Pre-filter stage error",
     };
   }
 }
@@ -193,34 +210,40 @@ export async function executePreFilterStage(
  */
 export async function executeTriageStage(
   supabase: SupabaseClient,
-  message: EmailMessageRecord
+  message: EmailMessageRecord,
 ): Promise<StageResult> {
   try {
-    const { triageEmailWithAi } = await import("@/modules/ai/prompts/triage");
-
     // Fetch user threshold preference, custom priority rules & ingestion-only mode
-    const { data: userSettings } = await supabase
+    const { data: userSettings, error: settingsError } = await supabase
       .from("user_settings")
-      .select("importance_threshold, custom_priority_rules, notification_preferences")
+      .select(
+        "importance_threshold, custom_priority_rules, notification_preferences",
+      )
       .eq("user_id", message.user_id)
       .maybeSingle();
+    if (settingsError) throw settingsError;
 
-    const isProcessingDisabled = Boolean(
-      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    const controls = getPipelineControls(
+      userSettings?.notification_preferences,
     );
 
-    if (isProcessingDisabled) {
+    if (!controls.use_ai) {
       return {
         success: true,
-        nextStage: null,
-        messageStatus: "RECEIVED",
+        nextStage: "delivery",
+        messageStatus: "PRE_FILTERED",
       };
     }
 
     const customRules = userSettings?.custom_priority_rules as
-      | { instructions?: string; vipSenders?: string[]; ignoreKeywords?: string[] }
+      | {
+          instructions?: string;
+          vipSenders?: string[];
+          ignoreKeywords?: string[];
+        }
       | undefined;
 
+    const { triageEmailWithAi } = await import("@/modules/ai/prompts/triage");
     const aiTriage = await triageEmailWithAi({
       subject: message.subject,
       sender: message.sender?.raw || "Unknown",
@@ -244,11 +267,15 @@ export async function executeTriageStage(
         output_tokens: aiTriage.outputTokens ?? null,
         triaged_at: new Date().toISOString(),
       },
-      { onConflict: "message_id" }
+      { onConflict: "message_id" },
     );
 
-    const threshold = userSettings?.importance_threshold ? Number(userSettings.importance_threshold) : 0.70;
-    const isHighImportance = aiTriage.result.importance >= threshold || aiTriage.result.category === "important";
+    const threshold = userSettings?.importance_threshold
+      ? Number(userSettings.importance_threshold)
+      : 0.7;
+    const isHighImportance =
+      aiTriage.result.importance >= threshold ||
+      aiTriage.result.category === "important";
 
     // Check if message is received today
     const messageDate = new Date(message.received_at);
@@ -270,7 +297,7 @@ export async function executeTriageStage(
             prompt_version: aiTriage.promptVersion,
             created_at: new Date().toISOString(),
           },
-          { onConflict: "message_id" }
+          { onConflict: "message_id" },
         );
 
         await supabase
@@ -324,7 +351,8 @@ export async function executeTriageStage(
 
     return {
       success: false,
-      error: triageErr instanceof Error ? triageErr.message : "Triage stage failure",
+      error:
+        triageErr instanceof Error ? triageErr.message : "Triage stage failure",
     };
   }
 }
@@ -335,25 +363,26 @@ export async function executeTriageStage(
  */
 export async function executeSummaryStage(
   supabase: SupabaseClient,
-  message: EmailMessageRecord
+  message: EmailMessageRecord,
 ): Promise<StageResult> {
   try {
     // 1. Check if user has Ingestion-Only mode active
-    const { data: userSettings } = await supabase
+    const { data: userSettings, error: settingsError } = await supabase
       .from("user_settings")
       .select("notification_preferences")
       .eq("user_id", message.user_id)
       .maybeSingle();
+    if (settingsError) throw settingsError;
 
-    const isProcessingDisabled = Boolean(
-      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
+    const controls = getPipelineControls(
+      userSettings?.notification_preferences,
     );
 
-    if (isProcessingDisabled) {
+    if (!controls.use_ai) {
       return {
         success: true,
-        nextStage: null,
-        messageStatus: "RECEIVED",
+        nextStage: "delivery",
+        messageStatus: "PRE_FILTERED",
       };
     }
 
@@ -372,7 +401,8 @@ export async function executeSummaryStage(
       };
     }
 
-    const { summarizeEmailWithAi } = await import("@/modules/ai/prompts/summary");
+    const { summarizeEmailWithAi } =
+      await import("@/modules/ai/prompts/summary");
 
     const aiSummary = await summarizeEmailWithAi({
       subject: message.subject,
@@ -392,7 +422,7 @@ export async function executeSummaryStage(
         prompt_version: aiSummary.promptVersion,
         created_at: new Date().toISOString(),
       },
-      { onConflict: "message_id" }
+      { onConflict: "message_id" },
     );
 
     await supabase
@@ -421,7 +451,10 @@ export async function executeSummaryStage(
 
     return {
       success: false,
-      error: summaryErr instanceof Error ? summaryErr.message : "Summary stage failure",
+      error:
+        summaryErr instanceof Error
+          ? summaryErr.message
+          : "Summary stage failure",
     };
   }
 }
@@ -432,27 +465,49 @@ export async function executeSummaryStage(
  */
 export async function executeDeliveryStage(
   supabase: SupabaseClient,
-  message: EmailMessageRecord
+  message: EmailMessageRecord,
 ): Promise<StageResult> {
   // 1. Fetch user's settings and WhatsApp destination
-  const { data: userSettings } = await supabase
+  const { data: userSettings, error: settingsError } = await supabase
     .from("user_settings")
-    .select("whatsapp_destination, importance_threshold, notification_preferences")
+    .select(
+      "whatsapp_destination, importance_threshold, notification_preferences",
+    )
     .eq("user_id", message.user_id)
     .maybeSingle();
 
-  const prefs = (userSettings?.notification_preferences as Record<string, unknown>) || {};
-  if (prefs.disable_processing) {
-    // Ingestion-only mode: do not send any WhatsApp messages
+  if (settingsError)
+    return { success: false, error: "Could not read delivery controls." };
+  const prefs =
+    (userSettings?.notification_preferences as Record<string, unknown>) || {};
+  const controls = getPipelineControls(prefs);
+  if (
+    !controls.send_whatsapp ||
+    !afterResume(message.received_at, prefs.deliver_after)
+  ) {
+    await supabase
+      .from("email_messages")
+      .update({ processing_status: "TRIAGED" })
+      .eq("id", message.id)
+      .neq("processing_status", "DELIVERED");
+    return { success: true, nextStage: null, messageStatus: "TRIAGED" };
+  }
+  const age = Date.now() - new Date(message.received_at).getTime();
+  if (
+    !Number.isFinite(age) ||
+    age < 0 ||
+    age > 24 * 60 * 60 * 1000 ||
+    message.processing_status === "DELIVERED"
+  ) {
     return {
       success: true,
       nextStage: null,
-      messageStatus: "INGESTED",
+      messageStatus: message.processing_status,
     };
   }
 
   // 2. Fetch the summary and triage results
-  const { data: summaryRecord } = await supabase
+  const { data: savedSummary, error: summaryError } = await supabase
     .from("summaries")
     .select("summary_text, extracted_items")
     .eq("message_id", message.id)
@@ -464,15 +519,25 @@ export async function executeDeliveryStage(
     .eq("message_id", message.id)
     .maybeSingle();
 
+  if (summaryError)
+    return { success: false, error: "Could not read email brief." };
+  const basicPreview = !controls.use_ai || !savedSummary?.summary_text;
+  const summaryRecord = basicPreview
+    ? { summary_text: formatEmailPreview(message), extracted_items: [] }
+    : savedSummary;
   const destinationPhone = userSettings?.whatsapp_destination;
 
   // 3. Dispatch WhatsApp alert if destination is configured
   if (destinationPhone && summaryRecord?.summary_text) {
     // Proactively check if 24-hour WhatsApp messaging window is active
-    const prefs = (userSettings?.notification_preferences as Record<string, unknown>) || {};
-    const lastInboundAt = prefs.last_inbound_at ? new Date(prefs.last_inbound_at as string).getTime() : 0;
+    const prefs =
+      (userSettings?.notification_preferences as Record<string, unknown>) || {};
+    const lastInboundAt = prefs.last_inbound_at
+      ? new Date(prefs.last_inbound_at as string).getTime()
+      : 0;
     const twentyFourHoursMs = 24 * 60 * 60 * 1000;
-    const isWindowActive = lastInboundAt > 0 && Date.now() - lastInboundAt < twentyFourHoursMs;
+    const isWindowActive =
+      lastInboundAt > 0 && Date.now() - lastInboundAt < twentyFourHoursMs;
 
     if (!isWindowActive) {
       // Window is closed: Do NOT send freeform text message that Meta will silently drop.
@@ -490,23 +555,25 @@ export async function executeDeliveryStage(
         const twelveHoursMs = 12 * 60 * 60 * 1000;
 
         if (Date.now() - lastTemplateSentAt > twelveHoursMs) {
-          const { sendGreetings24hTemplate } = await import("@/modules/whatsapp/templates");
-          await sendGreetings24hTemplate(destinationPhone, "there", { user_id: message.user_id });
+          const { sendGreetings24hTemplate } =
+            await import("@/modules/whatsapp/templates");
+          await sendGreetings24hTemplate(destinationPhone, "there", {
+            user_id: message.user_id,
+          });
 
-          await supabase
-            .from("user_settings")
-            .update({
-              notification_preferences: {
-                ...prefs,
-                last_template_sent_at: new Date().toISOString(),
-                window_status: "CLOSED",
-              },
-              updated_at: new Date().toISOString(),
-            })
-            .eq("user_id", message.user_id);
+          await saveUserSettings(supabase, {
+            user_id: message.user_id,
+            notification_preferences: {
+              last_template_sent_at: new Date().toISOString(),
+              window_status: "CLOSED",
+            },
+          });
         }
       } catch (templateFallbackErr) {
-        console.warn("Failed to dispatch template prompt for closed window:", templateFallbackErr);
+        console.warn(
+          "Failed to dispatch template prompt for closed window:",
+          templateFallbackErr,
+        );
       }
 
       return {
@@ -516,13 +583,34 @@ export async function executeDeliveryStage(
       };
     }
 
+    let deliveryClaimed = false;
     try {
       const { sendStrikeEmailAlert } = await import("@/modules/whatsapp");
       const extractedActionItems = Array.isArray(summaryRecord.extracted_items)
         ? summaryRecord.extracted_items
-        : (summaryRecord.extracted_items as { action_items?: Array<{ action: string; deadline?: string; assignee?: string }> })?.action_items || [];
+        : (
+            summaryRecord.extracted_items as {
+              action_items?: Array<{
+                action: string;
+                deadline?: string;
+                assignee?: string;
+              }>;
+            }
+          )?.action_items || [];
 
+      const { data: locked, error: lockError } = await supabase
+        .from("email_messages")
+        .update({ processing_status: "DELIVERING" })
+        .eq("id", message.id)
+        .neq("processing_status", "DELIVERED")
+        .neq("processing_status", "DELIVERING")
+        .select("id")
+        .maybeSingle();
+      if (lockError) throw lockError;
+      if (!locked) return { success: true, nextStage: null };
+      deliveryClaimed = true;
       await sendStrikeEmailAlert({
+        rawPreviewText: basicPreview ? summaryRecord.summary_text : undefined,
         recipientPhone: destinationPhone,
         sender: message.sender?.raw,
         subject: message.subject,
@@ -546,8 +634,23 @@ export async function executeDeliveryStage(
       };
     } catch (err: unknown) {
       console.error("WhatsApp delivery error in pipeline:", err);
-      const errMsg = err instanceof Error ? err.message : "WhatsApp delivery failed";
+      const errMsg =
+        err instanceof Error ? err.message : "WhatsApp delivery failed";
 
+      if (deliveryClaimed && !(err instanceof TypeError)) {
+        await supabase
+          .from("email_messages")
+          .update({ processing_status: "FAILED" })
+          .eq("id", message.id)
+          .eq("processing_status", "DELIVERING");
+      }
+      if (errMsg.includes("WHATSAPP_PAUSED")) {
+        await supabase
+          .from("email_messages")
+          .update({ processing_status: "TRIAGED" })
+          .eq("id", message.id);
+        return { success: true, nextStage: null, messageStatus: "TRIAGED" };
+      }
       // Detect if failure is due to 24-hour messaging window closure / Meta 131047 / HTTP 400
       const isWindowClosed =
         errMsg.includes("24 hours") ||
@@ -563,30 +666,36 @@ export async function executeDeliveryStage(
 
         // Proactively send 24h Greetings / Re-engagement Template if not sent in the last 12 hours
         try {
-          const userPrefs = (userSettings?.notification_preferences as Record<string, unknown>) || {};
+          const userPrefs =
+            (userSettings?.notification_preferences as Record<
+              string,
+              unknown
+            >) || {};
           const lastTemplateSentAt = userPrefs.last_template_sent_at
             ? new Date(userPrefs.last_template_sent_at as string).getTime()
             : 0;
           const twelveHoursMs = 12 * 60 * 60 * 1000;
 
           if (Date.now() - lastTemplateSentAt > twelveHoursMs) {
-            const { sendGreetings24hTemplate } = await import("@/modules/whatsapp/templates");
-            await sendGreetings24hTemplate(destinationPhone, "there", { user_id: message.user_id });
+            const { sendGreetings24hTemplate } =
+              await import("@/modules/whatsapp/templates");
+            await sendGreetings24hTemplate(destinationPhone, "there", {
+              user_id: message.user_id,
+            });
 
-            await supabase
-              .from("user_settings")
-              .update({
-                notification_preferences: {
-                  ...userPrefs,
-                  last_template_sent_at: new Date().toISOString(),
-                  window_status: "CLOSED",
-                },
-                updated_at: new Date().toISOString(),
-              })
-              .eq("user_id", message.user_id);
+            await saveUserSettings(supabase, {
+              user_id: message.user_id,
+              notification_preferences: {
+                last_template_sent_at: new Date().toISOString(),
+                window_status: "CLOSED",
+              },
+            });
           }
         } catch (templateFallbackErr) {
-          console.warn("Failed to dispatch template prompt for closed window:", templateFallbackErr);
+          console.warn(
+            "Failed to dispatch template prompt for closed window:",
+            templateFallbackErr,
+          );
         }
 
         return {
@@ -618,20 +727,20 @@ export async function executeDeliveryStage(
       };
     }
   } else if (!destinationPhone) {
-    console.warn(`Skipping WhatsApp delivery for message ${message.id}: No whatsapp_destination configured in user_settings.`);
+    console.warn(
+      `Skipping WhatsApp delivery for message ${message.id}: No whatsapp_destination configured in user_settings.`,
+    );
   }
 
   // If WhatsApp was skipped or not configured, finalize message status as PROCESSED
   await supabase
     .from("email_messages")
-    .update({ processing_status: "PROCESSED" })
+    .update({ processing_status: "TRIAGED" })
     .eq("id", message.id);
 
   return {
     success: true,
     nextStage: null,
-    messageStatus: "PROCESSED",
+    messageStatus: "TRIAGED",
   };
 }
-
-

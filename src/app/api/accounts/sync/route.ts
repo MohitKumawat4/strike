@@ -1,3 +1,4 @@
+import { getPipelineControls } from "@/common/pipeline-controls";
 import { type NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/database/supabase/server";
 import { performInitialSync } from "@/modules/email/ingestion/initial-sync";
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
     const destinationPhone = userSettings?.whatsapp_destination;
     const notifyEnabled = (userSettings?.notification_preferences as { notify_on_important?: boolean } | null)?.notify_on_important !== false;
 
-    if (destinationPhone && notifyEnabled && allHistoricalMessages.length > 0) {
+    if (destinationPhone && notifyEnabled && getPipelineControls(userSettings?.notification_preferences).send_whatsapp && !(userSettings?.notification_preferences as Record<string, unknown>)?.deliver_after && allHistoricalMessages.length > 0) {
       try {
         const { sendWhatsAppMessage } = await import("@/modules/whatsapp/whatsapp");
 
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
           ].join("\n");
         }
 
-        await sendWhatsAppMessage(destinationPhone, "text", { body: digestBody });
+        await sendWhatsAppMessage(destinationPhone, "text", { body: digestBody }, { user_id: user.id });
       } catch (waErr) {
         console.warn("Failed to send WhatsApp catch-up digest during sync:", waErr);
       }

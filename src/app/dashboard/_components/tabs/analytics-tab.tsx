@@ -2,7 +2,7 @@
 
 import ui from "./modern-tabs.module.css";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -14,14 +14,21 @@ import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
   Area,
   AreaChart,
 } from "recharts";
-import { BarChart2, TrendingUp, PieChart as PieChartIcon, Clock } from "lucide-react";
+import {
+  BarChart2,
+  TrendingUp,
+  PieChart as PieChartIcon,
+  Clock,
+} from "lucide-react";
 
-import type { ConnectedAccount, EmailMessage, ProcessingJob } from "../dashboard-shell";
+import type {
+  ConnectedAccount,
+  EmailMessage,
+  ProcessingJob,
+} from "../dashboard-shell";
 
 type AnalyticsTabProps = {
   messages: EmailMessage[];
@@ -29,45 +36,67 @@ type AnalyticsTabProps = {
   jobs: ProcessingJob[];
 };
 
-/* Muted violet dusk color palette for charts */
 const CHART_COLORS = {
-  primary: "#7a3a7a",
-  secondary: "#9b4291",
-  tertiary: "#4348a6",
-  quaternary: "#c76232",
-  background: "rgba(122, 58, 122, 0.15)",
-  grid: "rgba(255, 255, 255, 0.06)",
-  gridLight: "rgba(38, 22, 34, 0.08)",
+  primary: "var(--brand-plum)",
+  secondary: "var(--info)",
+  grid: "var(--line-subtle)",
   text: "var(--muted)",
 };
+const CATEGORY_COLORS = [
+  "var(--brand-plum)",
+  "var(--info)",
+  "var(--warning)",
+  "var(--muted)",
+  "var(--chart-line)",
+];
 
-/* Category colors for pie chart */
-const CATEGORY_COLORS = ["#7a3a7a", "#9b4291", "#4348a6", "#c76232", "#65285f"];
-
-export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
-  /* Compute daily ingestion volume for the last 14 days */
+export function AnalyticsTab({
+  messages: allMessages,
+  accounts,
+  jobs,
+}: AnalyticsTabProps) {
+  const [accountFilter, setAccountFilter] = useState("all");
+  const [volumeDays, setVolumeDays] = useState(14);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const messages = useMemo(
+    () =>
+      allMessages.filter(
+        (message) =>
+          accountFilter === "all" || message.account_id === accountFilter,
+      ),
+    [allMessages, accountFilter],
+  );
+  const scopedJobs = useMemo(() => {
+    if (accountFilter === "all") return jobs;
+    const ids = new Set(messages.map((message) => message.id));
+    return jobs.filter((job) => ids.has(job.message_id));
+  }, [jobs, messages, accountFilter]);
   const dailyVolume = useMemo(() => {
-    const days: Record<string, number> = {};
     const now = new Date();
-
-    // Initialize last 14 days with zero
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const key = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      days[key] = 0;
-    }
-
-    // Count messages per day
-    messages.forEach((msg) => {
-      if (!msg.received_at) return;
-      const d = new Date(msg.received_at);
-      const key = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      if (key in days) days[key]++;
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    start.setDate(start.getDate() - volumeDays + 1);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const days = Array.from({ length: volumeDays }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(date.getDate() + index);
+      return {
+        date: date.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }),
+        count: 0,
+        key: date.toDateString(),
+      };
     });
-
-    return Object.entries(days).map(([date, count]) => ({ date, count }));
-  }, [messages]);
+    messages.forEach((message) => {
+      if (!message.received_at) return;
+      const date = new Date(message.received_at);
+      if (date < start || date >= end) return;
+      const day = days.find((day) => day.key === date.toDateString());
+      if (day) day.count++;
+    });
+    return days;
+  }, [messages, volumeDays]);
 
   /* Category breakdown driven by live AI classifications */
   const categoryBreakdown = useMemo(() => {
@@ -113,32 +142,62 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
 
   /* Account comparison: count messages per connected account */
   const accountVolume = useMemo(() => {
-    return accounts.map((a) => ({
-      name: a.email_address.split("@")[0],
-      emails: messages.filter((m) => m.account_id === a.id).length,
-    }));
-  }, [accounts, messages]);
+    return accounts
+      .filter(
+        (account) => accountFilter === "all" || account.id === accountFilter,
+      )
+      .map((a) => ({
+        name: a.email_address.split("@")[0],
+        emails: messages.filter((m) => m.account_id === a.id).length,
+      }));
+  }, [accounts, messages, accountFilter]);
 
-  /* Processing latency (placeholder — will be real once jobs have timing data) */
+  const timedJobs = useMemo(
+    () =>
+      scopedJobs.flatMap((job) => {
+        if (!job.started_at || !job.completed_at) return [];
+        const start = new Date(job.started_at).getTime();
+        const end = new Date(job.completed_at).getTime();
+        return Number.isFinite(start) && Number.isFinite(end) && end >= start
+          ? [{ date: new Date(end), latency: (end - start) / 60000 }]
+          : [];
+      }),
+    [scopedJobs],
+  );
   const latencyData = useMemo(() => {
-    const days: { date: string; latency: number }[] = [];
     const now = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      days.push({
-        date: d.toLocaleDateString("en-US", { weekday: "short" }),
-        latency: 0,
-      });
-    }
-    return days;
-  }, []);
-
-  /* Summary stats */
+    return Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(now);
+      day.setDate(day.getDate() - 6 + index);
+      const samples = timedJobs.filter(
+        (job) => job.date.toDateString() === day.toDateString(),
+      );
+      return {
+        date: day.toLocaleDateString("en-US", { weekday: "short" }),
+        latency: samples.length
+          ? Number(
+              (
+                samples.reduce((sum, job) => sum + job.latency, 0) /
+                samples.length
+              ).toFixed(2),
+            )
+          : null,
+      };
+    });
+  }, [timedJobs]);
   const totalMessages = messages.length;
-  const totalJobs = jobs.length;
-  const completedJobs = jobs.filter((j) => j.status === "completed").length;
-  const avgLatency = 0; // Placeholder until timing data exists
+  const totalJobs = scopedJobs.length;
+  const completedJobs = scopedJobs.filter(
+    (j) => j.status === "completed",
+  ).length;
+  const avgLatency = timedJobs.length
+    ? (
+        timedJobs.reduce((sum, job) => sum + job.latency, 0) / timedJobs.length
+      ).toFixed(2)
+    : null;
+  const categoryInsight = categoryBreakdown.find(
+    (category) => category.name === selectedCategory,
+  );
 
   return (
     <div className={ui.page}>
@@ -153,6 +212,27 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
         </div>
       </div>
 
+      <div className={ui.viewToolbar}>
+        <div>
+          <strong>See where your attention goes.</strong>
+          <span>Totals reflect loaded messages and processing jobs.</span>
+        </div>
+        <label className={ui.selectLabel}>
+          Mailbox
+          <select
+            aria-label="Analytics mailbox"
+            value={accountFilter}
+            onChange={(event) => setAccountFilter(event.target.value)}
+          >
+            <option value="all">All mailboxes</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.email_address}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {/* Summary Stats Row */}
       <div className="analytics-stats-grid">
         <div className="analytics-stat-card">
@@ -163,7 +243,7 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
         <div className="analytics-stat-card">
           <TrendingUp size={18} />
           <strong>{totalJobs}</strong>
-          <span>Jobs processed</span>
+          <span>Total processing jobs</span>
         </div>
         <div className="analytics-stat-card">
           <PieChartIcon size={18} />
@@ -172,8 +252,12 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
         </div>
         <div className="analytics-stat-card">
           <Clock size={18} />
-          <strong>{avgLatency}m</strong>
-          <span>Avg. latency</span>
+          <strong>{avgLatency === null ? "—" : `${avgLatency}m`}</strong>
+          <span>
+            {avgLatency === null
+              ? "Awaiting timing data"
+              : "Avg. recorded latency"}
+          </span>
         </div>
       </div>
 
@@ -186,11 +270,30 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
               <p className="eyebrow">INGESTION VOLUME</p>
               <h2>Emails per day</h2>
             </div>
+            <div
+              className={ui.segmented}
+              aria-label="Ingestion chart time range"
+            >
+              {[7, 14, 30].map((days) => (
+                <button
+                  type="button"
+                  key={days}
+                  aria-pressed={volumeDays === days}
+                  onClick={() => setVolumeDays(days)}
+                >
+                  {days}d
+                </button>
+              ))}
+            </div>
           </div>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={dailyVolume} barSize={18}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={CHART_COLORS.grid}
+                  vertical={false}
+                />
                 <XAxis
                   dataKey="date"
                   tick={{ fill: CHART_COLORS.text, fontSize: 11 }}
@@ -212,7 +315,11 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
                     color: "var(--ink)",
                   }}
                 />
-                <Bar dataKey="count" fill={CHART_COLORS.primary} radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="count"
+                  fill={CHART_COLORS.primary}
+                  radius={[4, 4, 0, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -242,8 +349,23 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
                   >
                     {categoryBreakdown
                       .filter((c) => c.value > 0)
-                      .map((_, idx) => (
-                        <Cell key={idx} fill={CATEGORY_COLORS[idx % CATEGORY_COLORS.length]} />
+                      .map((category) => (
+                        <Cell
+                          key={category.name}
+                          fill={
+                            CATEGORY_COLORS[
+                              categoryBreakdown.findIndex(
+                                (entry) => entry.name === category.name,
+                              )
+                            ]
+                          }
+                          opacity={
+                            !selectedCategory ||
+                            selectedCategory === category.name
+                              ? 1
+                              : 0.22
+                          }
+                        />
                       ))}
                   </Pie>
                   <Tooltip
@@ -260,15 +382,34 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
             ) : (
               <div className="chart-empty-state">
                 <PieChartIcon size={32} strokeWidth={1} />
-                <p>No data yet — awaiting AI triage (Phase 6)</p>
+                <p>No classifications yet. Your categories will appear here.</p>
               </div>
             )}
+            <p className={ui.chartInsight} aria-live="polite">
+              {categoryInsight
+                ? `${categoryInsight.value} ${categoryInsight.name.toLowerCase()} emails · ${totalMessages ? Math.round((categoryInsight.value / totalMessages) * 100) : 0}% of this mailbox selection`
+                : "Select a category to explore its share of your inbox."}
+            </p>
             <div className="chart-legend">
               {categoryBreakdown.map((cat, idx) => (
-                <span className="chart-legend-item" key={cat.name}>
-                  <i style={{ background: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }} />
+                <button
+                  type="button"
+                  className={ui.legendButton}
+                  key={cat.name}
+                  aria-pressed={selectedCategory === cat.name}
+                  onClick={() =>
+                    setSelectedCategory(
+                      selectedCategory === cat.name ? null : cat.name,
+                    )
+                  }
+                >
+                  <i
+                    style={{
+                      background: CATEGORY_COLORS[idx % CATEGORY_COLORS.length],
+                    }}
+                  />
                   {cat.name} ({cat.value})
-                </span>
+                </button>
               ))}
             </div>
           </div>
@@ -280,12 +421,19 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
             <div>
               <p className="eyebrow">PERFORMANCE</p>
               <h2>Processing latency</h2>
+              <p className={ui.chartInsight}>
+                Last 7 days · recorded job durations in minutes
+              </p>
             </div>
           </div>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={240}>
               <AreaChart data={latencyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={CHART_COLORS.grid}
+                  vertical={false}
+                />
                 <XAxis
                   dataKey="date"
                   tick={{ fill: CHART_COLORS.text, fontSize: 11 }}
@@ -309,9 +457,23 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
                   }}
                 />
                 <defs>
-                  <linearGradient id="latencyGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={CHART_COLORS.primary} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={CHART_COLORS.primary} stopOpacity={0} />
+                  <linearGradient
+                    id="latencyGradient"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={CHART_COLORS.primary}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={CHART_COLORS.primary}
+                      stopOpacity={0}
+                    />
                   </linearGradient>
                 </defs>
                 <Area
@@ -324,6 +486,12 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          {!latencyData.some((day) => day.latency !== null) && (
+            <p className={ui.timingNotice}>
+              No recorded job durations in the last 7 days. The latency chart
+              will fill as timing data becomes available.
+            </p>
+          )}
         </div>
 
         {/* Account Comparison — Horizontal Bar Chart */}
@@ -338,7 +506,11 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
             {accountVolume.length > 0 ? (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={accountVolume} layout="vertical" barSize={20}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={CHART_COLORS.grid}
+                    horizontal={false}
+                  />
                   <XAxis
                     type="number"
                     tick={{ fill: CHART_COLORS.text, fontSize: 11 }}
@@ -363,7 +535,11 @@ export function AnalyticsTab({ messages, accounts, jobs }: AnalyticsTabProps) {
                       color: "var(--ink)",
                     }}
                   />
-                  <Bar dataKey="emails" fill={CHART_COLORS.secondary} radius={[0, 4, 4, 0]} />
+                  <Bar
+                    dataKey="emails"
+                    fill={CHART_COLORS.secondary}
+                    radius={[0, 4, 4, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

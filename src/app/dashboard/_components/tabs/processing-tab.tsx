@@ -1,5 +1,6 @@
 "use client";
 
+import { PipelineControls } from "./pipeline-controls";
 import ui from "./modern-tabs.module.css";
 
 import { useMemo, useState } from "react";
@@ -31,6 +32,7 @@ import { MessageDetailDrawer } from "../message-detail-drawer";
 import { decodeHtmlEntities } from "@/common/types/domain";
 
 type ProcessingTabProps = {
+  onUpdateUserSettings?: (settings: UserSettings) => void;
   jobs: ProcessingJob[];
   messages?: EmailMessage[];
   accounts?: ConnectedAccount[];
@@ -40,6 +42,7 @@ type ProcessingTabProps = {
 type ActivityFilter = "all" | "whatsapp" | "important" | "filtered";
 
 export function ProcessingTab({
+  onUpdateUserSettings,
   jobs = [],
   messages = [],
   accounts = [],
@@ -93,7 +96,7 @@ export function ProcessingTab({
         };
       } else if (isImportant) {
         outcome = {
-          label: hasWhatsApp ? "📱 WhatsApp Stream Active" : "⚡ Executive Brief Ready",
+          label: hasWhatsApp ? "📱 Priority · WhatsApp configured" : "⚡ Priority email",
           color: "var(--info)",
           bg: "var(--surface-muted)",
           type: hasWhatsApp ? "whatsapp" : "important",
@@ -138,7 +141,7 @@ export function ProcessingTab({
   }, [messages, threshold, hasWhatsApp, accountMap]);
 
   /* Synchronized Funnel & Badge Counts */
-  const triagedCount = totalReceived;
+  const triagedCount = messages.filter((message) => Boolean(message.ai_category)).length;
   const importantCount = activityItems.filter((item) => item.isImportant).length;
   const noiseCount = activityItems.filter((item) => item.outcome.type === "filtered").length;
   const whatsappDeliveredCount = activityItems.filter(
@@ -211,6 +214,7 @@ export function ProcessingTab({
 
   return (
     <div className={ui.page}>
+      <PipelineControls userSettings={userSettings} onSave={onUpdateUserSettings} />
       {/* Header */}
       <div className="dashboard-title-row" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
         <div>
@@ -290,7 +294,7 @@ export function ProcessingTab({
             }} />
           </div>
           <div style={{ fontSize: "14px", fontWeight: 750, color: "var(--ink)" }}>
-            Online (Gemini / OpenAI)
+            AI classification
           </div>
           <div style={{ fontSize: "11.5px", color: "var(--muted)", marginTop: "2px" }}>
             Custom VIP & priority rules applied
@@ -437,7 +441,7 @@ export function ProcessingTab({
                 cursor: "pointer",
               }}
             >
-              📱 WhatsApp Delivered ({whatsappDeliveredCount})
+              📱 WhatsApp Stream ({whatsappDeliveredCount})
             </button>
 
             <button

@@ -1,3 +1,4 @@
+import { getPipelineControls, afterResume } from "@/common/pipeline-controls";
 import { google } from "googleapis";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptToken } from "@/common/crypto/encryption";
@@ -29,6 +30,10 @@ export async function processHistorySync(
   supabase: SupabaseClient,
   { accountId, userId, encryptedRefreshToken, startHistoryId }: HistorySyncParams
 ): Promise<HistorySyncResult> {
+  const { data: userSettings, error: settingsError } = await supabase.from("user_settings").select("notification_preferences").eq("user_id", userId).maybeSingle();
+  if (settingsError) throw settingsError;
+  const prefs = (userSettings?.notification_preferences ?? {}) as Record<string, unknown>;
+  if (!getPipelineControls(prefs).receive_emails) return { syncedCount: 0, latestHistoryId: startHistoryId };
   const refreshToken = decryptToken(encryptedRefreshToken);
   const oauth2Client = getGoogleOAuthClient();
   oauth2Client.setCredentials({ refresh_token: refreshToken });
@@ -106,17 +111,6 @@ export async function processHistorySync(
 
   let syncedCount = 0;
 
-  // Check if user has enabled Ingestion-Only mode (bypasses AI pipeline and WhatsApp delivery)
-  const { data: userSettings } = await supabase
-    .from("user_settings")
-    .select("notification_preferences")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  const isProcessingDisabled = Boolean(
-    (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
-  );
-
   // Ingest each new email
   for (const messageId of newMessageIds) {
     try {
@@ -140,7 +134,8 @@ export async function processHistorySync(
       const rawSender = getHeader("From") || "Unknown Sender";
       const toHeader = getHeader("To") || "";
       const dateHeader = getHeader("Date");
-      const receivedAt = dateHeader ? new Date(dateHeader) : new Date();
+      const receivedAt = new Date(Number(message.internalDate) || Date.parse(dateHeader) || Date.now());
+      if (!afterResume(receivedAt.toISOString(), prefs.receive_after)) continue;
 
       // Decode HTML entities
       const subject = decodeHtmlEntities(rawSubject);
@@ -179,16 +174,17 @@ export async function processHistorySync(
           },
           {
             onConflict: "account_id,provider_message_id",
+            ignoreDuplicates: true,
           }
         )
         .select("id")
-        .single();
+        .maybeSingle();
 
       if (!insertError && insertedMsg) {
         syncedCount++;
 
-        // Only queue downstream AI processing job if Ingestion-Only mode is NOT active
-        if (!isProcessingDisabled) {
+        // The shared stage handlers decide which layers to run.
+        {
           await supabase.from("processing_jobs").upsert(
             {
               message_id: insertedMsg.id,

@@ -1,4 +1,5 @@
 "use client";
+import type { PipelineControls } from "@/common/pipeline-controls";
 
 import Link from "next/link";
 import localFont from "next/font/local";
@@ -108,6 +109,7 @@ export type CustomPriorityRules = {
 };
 
 export type UserSettings = {
+  pipeline?: PipelineControls;
   importance_threshold?: number;
   raw_body_retention_days?: number;
   notify_on_important?: boolean;
@@ -902,6 +904,7 @@ export function DashboardShell({
       case "processing":
         return (
           <ProcessingTab
+            onUpdateUserSettings={(updates) => setCurrentUserSettings((previous) => ({ ...previous, ...updates }))}
             accounts={accounts}
             jobs={processingJobs}
             messages={messages}
@@ -923,9 +926,10 @@ export function DashboardShell({
       case "settings":
         return (
           <SettingsTab
+            onOpenProcessing={() => handleTabSelect("processing")}
             email={email}
             userSettings={currentUserSettings}
-            onUpdateUserSettings={setCurrentUserSettings}
+            onUpdateUserSettings={(updates) => setCurrentUserSettings((previous) => ({ ...previous, ...updates }))}
           />
         );
       default:

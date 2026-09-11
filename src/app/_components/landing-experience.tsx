@@ -32,8 +32,9 @@ function SignalSculpture({ paused }: { paused: boolean }) {
   const { scrollYProgress } = useScroll({ target: scene, offset: ["start start", "end start"] });
   const scrollRotate = useTransform(scrollYProgress, [0, 1], [-28, 15]);
   const scrollY = useTransform(scrollYProgress, [0, 1], [0, 100]);
+  // Set data-paused="true" only when paused to prevent SSR/client hydration mismatch (useReducedMotion returns null on SSR)
   return (
-    <div ref={scene} className={s.signalScene} data-paused={paused || reduced} onPointerMove={(event) => {
+    <div ref={scene} className={s.signalScene} data-paused={paused ? "true" : undefined} onPointerMove={(event) => {
       if (paused || reduced || event.pointerType !== "mouse") return;
       const rect = event.currentTarget.getBoundingClientRect();
       x.set(((event.clientX - rect.left) / rect.width - 0.5) * 22);
@@ -146,7 +147,8 @@ export default function LandingExperience() {
 
   const destination = signedIn ? "/dashboard" : "/signup";
   const actionLabel = signedIn ? "Open dashboard" : "Get started";
-  return <MotionConfig reducedMotion={paused ? "always" : "user"}><div className={s.page} data-motion-paused={paused}>
+  // data-motion-paused is set to "true" only when paused by the user, matching CSS selector .page[data-motion-paused="true"]
+  return <MotionConfig reducedMotion={paused ? "always" : "user"}><div className={s.page} data-motion-paused={paused ? "true" : undefined}>
     <a className={s.skipLink} href="#main">Skip to content</a>
     {!paused && <motion.div className={s.scrollProgress} style={{ scaleX: reduced ? scrollYProgress : progress }} aria-hidden="true" />}
     <header className={s.header}><div className={s.navInner}><Brand /><nav className={s.desktopNav} aria-label="Main navigation"><a href="#product">The product</a><a href="#how-it-works">How it works</a><a href="#privacy">Built on trust</a></nav><div className={s.navActions}><Link href={signedIn ? "/dashboard" : "/login"} className={s.login}>{signedIn ? "Your workspace" : "Log in"}</Link><Link className={s.navCta} href={destination}>{actionLabel}<ArrowUpRight size={15} /></Link><button className={s.menuToggle} type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div></div>

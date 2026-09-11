@@ -102,6 +102,10 @@ export async function processSingleJob(
     }
 
     const messageRecord = message as EmailMessageRecord;
+    if (messageRecord.processing_status === "DELIVERED") {
+      await supabase.from("processing_jobs").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", job.id);
+      return { success: true, stage: job.stage, nextStage: null };
+    }
 
     // 2. Dispatch to the appropriate stage handler
     let stageResult: StageResult;
@@ -153,6 +157,7 @@ export async function processSingleJob(
         },
         {
           onConflict: "message_id,stage",
+          ignoreDuplicates: true,
         }
       );
     }

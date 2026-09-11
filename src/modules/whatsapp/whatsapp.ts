@@ -1,3 +1,5 @@
+import { getPipelineControls } from "@/common/pipeline-controls";
+import { saveUserSettings } from "@/database/user-settings";
 import { createClient } from '@supabase/supabase-js';
 import { decodeHtmlEntities } from '@/modules/email/ingestion/initial-sync';
 
@@ -10,6 +12,13 @@ function getSupabaseService() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+async function assertDeliveryEnabled(userId?: string | null) {
+  if (!userId) return;
+  const { data, error } = await getSupabaseService().from('user_settings').select('notification_preferences').eq('user_id', userId).maybeSingle();
+  if (error) throw new Error('Could not verify WhatsApp controls.');
+  if (!getPipelineControls(data?.notification_preferences).send_whatsapp) throw new Error('WHATSAPP_PAUSED');
 }
 
 function getCloudFunctionUrl(): string {
@@ -81,6 +90,7 @@ export async function sendWhatsAppMessage(
   content: SendMessageContent,
   logCtx?: OutboundLogContext
 ) {
+  await assertDeliveryEnabled(logCtx?.user_id);
   // Normalize phone number (strip whitespace and leading +)
   const cleanPhone = recipientPhone.replace(/[\s+-]/g, '');
   const functionUrl = getCloudFunctionUrl();
@@ -146,6 +156,7 @@ export async function sendWhatsAppTemplate(
   components?: Array<Record<string, unknown>>,
   logCtx?: OutboundLogContext
 ) {
+  await assertDeliveryEnabled(logCtx?.user_id);
   const cleanPhone = recipientPhone.replace(/[\s+-]/g, '');
   const functionUrl = getCloudFunctionUrl();
 
@@ -221,6 +232,7 @@ export interface StrikeEmailAlertParams {
   sender?: string;
   subject: string;
   summaryText: string;
+  rawPreviewText?: string;
   category?: string;
   importance?: number;
   actionItems?: Array<{ action: string; deadline?: string; assignee?: string }>;
@@ -262,7 +274,7 @@ export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
   bodyLines.push('');
   bodyLines.push('🚀 _Strike Email Intelligence_');
 
-  const messageText = bodyLines.join('\n');
+  const messageText = params.rawPreviewText ?? bodyLines.join('\n');
 
   return sendWhatsAppMessage(
     params.recipientPhone,
@@ -298,21 +310,10 @@ export async function openWhatsApp24hWindow(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    const updatedPrefs = {
-      ...existingPrefs,
-      last_inbound_at: now.toISOString(),
-      window_status: 'OPEN',
-      window_expires_at: expiresAt.toISOString(),
+    await saveUserSettings(supabase, { user_id: userId, notification_preferences: {
+      last_inbound_at: now.toISOString(), window_status: 'OPEN', window_expires_at: expiresAt.toISOString(),
       last_inbound_text: inboundText || existingPrefs.last_inbound_text || null,
-    };
-
-    await supabase
-      .from('user_settings')
-      .update({
-        notification_preferences: updatedPrefs,
-        updated_at: now.toISOString(),
-      })
-      .eq('id', userSettings.id);
+    }});
 
     // Record system audit event
     await supabase.from('system_events').insert({
@@ -337,170 +338,19 @@ export async function openWhatsApp24hWindow(
  * Flushes and delivers all stacked / pending high-priority email alerts from the last 24 hours to the user on WhatsApp.
  */
 export async function flushStackedEmailAlerts(
-  supabase: ReturnType<typeof getSupabaseService>,
-  userId: string,
-  recipientPhone: string
+  supabase: ReturnType<typeof getSupabaseService>, userId: string, recipientPhone: string,
 ): Promise<{ flushedCount: number; messagesDelivered: string[] }> {
-  try {
-    // 1. Fetch user threshold preference and Ingestion-Only mode status
-    const { data: userSettings } = await supabase
-      .from('user_settings')
-      .select('importance_threshold, notification_preferences')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    const isProcessingDisabled = Boolean(
-      (userSettings?.notification_preferences as Record<string, unknown>)?.disable_processing
-    );
-    if (isProcessingDisabled) {
-      console.log(`Ingestion-only mode is active for user ${userId}. Skipping WhatsApp message flush.`);
-      return { flushedCount: 0, messagesDelivered: [] };
-    }
-
-    const threshold = userSettings?.importance_threshold ? Number(userSettings.importance_threshold) : 0.70;
-
-    // 2. Fetch candidate emails received in the last 24 hours (or pending delivery)
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: candidates, error: candError } = await supabase
-      .from('email_messages')
-      .select('id, account_id, subject, snippet, body_text, sender, recipients, received_at, processing_status')
-      .eq('user_id', userId)
-      .gte('received_at', cutoff)
-      .neq('processing_status', 'DISCARDED')
-      .neq('processing_status', 'DELIVERED')
-      .order('received_at', { ascending: true })
-      .limit(10);
-
-    if (candError || !candidates || candidates.length === 0) {
-      return { flushedCount: 0, messagesDelivered: [] };
-    }
-
-    const deliveredIds: string[] = [];
-
-    for (const msg of candidates) {
-      // Fetch or run triage AI score
-      let { data: triageRecord } = await supabase
-        .from('ai_results')
-        .select('category, importance')
-        .eq('message_id', msg.id)
-        .maybeSingle();
-
-      if (!triageRecord) {
-        try {
-          const { triageEmailWithAi } = await import('@/modules/ai/prompts/triage');
-          const aiTriage = await triageEmailWithAi({
-            subject: msg.subject,
-            sender: msg.sender?.raw || 'Unknown',
-            snippet: msg.snippet,
-            bodyText: msg.body_text,
-          });
-
-          await supabase.from('ai_results').upsert({
-            message_id: msg.id,
-            category: aiTriage.result.category,
-            importance: aiTriage.result.importance,
-            confidence: aiTriage.result.confidence,
-            reason: aiTriage.result.reason,
-            model: aiTriage.model,
-            prompt_version: aiTriage.promptVersion,
-            triaged_at: new Date().toISOString(),
-          });
-
-          triageRecord = {
-            category: aiTriage.result.category,
-            importance: aiTriage.result.importance,
-          };
-        } catch (tErr) {
-          console.warn(`Failed to triage candidate ${msg.id} during flush:`, tErr);
-        }
-      }
-
-      const isImportant =
-        triageRecord &&
-        (Number(triageRecord.importance) >= threshold ||
-          triageRecord.category === 'important' ||
-          triageRecord.category === 'urgent');
-
-      if (!isImportant) {
-        // Mark as PROCESSED if not meeting high priority threshold
-        await supabase
-          .from('email_messages')
-          .update({ processing_status: 'PROCESSED' })
-          .eq('id', msg.id);
-        continue;
-      }
-
-      // Fetch or generate summary
-      let { data: summaryRecord } = await supabase
-        .from('summaries')
-        .select('summary_text, extracted_items')
-        .eq('message_id', msg.id)
-        .maybeSingle();
-
-      if (!summaryRecord || !summaryRecord.summary_text) {
-        try {
-          const { summarizeEmailWithAi } = await import('@/modules/ai/prompts/summary');
-          const aiSummary = await summarizeEmailWithAi({
-            subject: msg.subject,
-            sender: msg.sender?.raw || 'Unknown',
-            snippet: msg.snippet,
-            bodyText: msg.body_text,
-          });
-
-          await supabase.from('summaries').upsert({
-            message_id: msg.id,
-            summary_text: aiSummary.result.summary_text,
-            extracted_items: aiSummary.result.extracted_items,
-            model: aiSummary.model,
-            prompt_version: aiSummary.promptVersion,
-            created_at: new Date().toISOString(),
-          });
-
-          summaryRecord = {
-            summary_text: aiSummary.result.summary_text,
-            extracted_items: aiSummary.result.extracted_items,
-          };
-        } catch (sErr) {
-          console.warn(`Failed to summarize candidate ${msg.id} during flush:`, sErr);
-        }
-      }
-
-      if (summaryRecord?.summary_text) {
-        const actionItems = Array.isArray(summaryRecord.extracted_items)
-          ? summaryRecord.extracted_items
-          : (summaryRecord.extracted_items as { action_items?: Array<{ action: string; deadline?: string; assignee?: string }> })?.action_items || [];
-
-        try {
-          await sendStrikeEmailAlert({
-            recipientPhone,
-            sender: msg.sender?.raw,
-            subject: msg.subject,
-            summaryText: summaryRecord.summary_text,
-            category: triageRecord?.category,
-            importance: triageRecord?.importance,
-            actionItems,
-            emailMessageId: msg.id,
-            userId,
-          });
-
-          await supabase
-            .from('email_messages')
-            .update({ processing_status: 'DELIVERED' })
-            .eq('id', msg.id);
-
-          deliveredIds.push(msg.id);
-        } catch (deliverErr) {
-          console.error(`Failed to dispatch stacked message ${msg.id}:`, deliverErr);
-        }
-      }
-    }
-
-    return {
-      flushedCount: deliveredIds.length,
-      messagesDelivered: deliveredIds,
-    };
-  } catch (err) {
-    console.error('Error in flushStackedEmailAlerts:', err);
-    return { flushedCount: 0, messagesDelivered: [] };
+  // Only flush emails that actually reached delivery. Never generate AI work from a reply.
+  const { data: settings, error: settingsError } = await supabase.from('user_settings').select('notification_preferences, whatsapp_destination').eq('user_id', userId).maybeSingle();
+  if (settingsError || !getPipelineControls(settings?.notification_preferences).send_whatsapp || settings?.whatsapp_destination?.replace(/\D/g, '') !== recipientPhone.replace(/\D/g, '')) return { flushedCount: 0, messagesDelivered: [] };
+  const { data: candidates, error } = await supabase.from('email_messages').select('*').eq('user_id', userId).eq('processing_status', 'DELIVERY_PENDING')
+    .gte('received_at', new Date(Date.now() - 86400000).toISOString()).order('received_at', { ascending: true }).limit(10);
+  if (error) throw error;
+  const { executeDeliveryStage } = await import('@/modules/processing/stages');
+  const messagesDelivered: string[] = [];
+  for (const message of candidates || []) {
+    const result = await executeDeliveryStage(supabase, message);
+    if (result.messageStatus === 'DELIVERED') messagesDelivered.push(message.id);
   }
+  return { flushedCount: messagesDelivered.length, messagesDelivered };
 }

@@ -75,7 +75,15 @@ export function InboxWorkspace({
   const readerId = useId();
   const threshold = userSettings?.importance_threshold ?? 0.7;
   const { priorityCount, matches, visibleMessages, selected } = useMemo(
-    () => getInboxView(messages, filter, query, threshold, selectedId, visibleLimit),
+    () =>
+      getInboxView(
+        messages,
+        filter,
+        query,
+        threshold,
+        selectedId,
+        visibleLimit,
+      ),
     [messages, filter, query, threshold, selectedId, visibleLimit],
   );
   const account = accounts.find((item) => item.id === selected?.account_id);
@@ -95,6 +103,7 @@ export function InboxWorkspace({
   return (
     <section
       className={styles.workspace}
+      data-full-inbox={!showFilters || undefined}
       aria-label="Recent activity"
       data-mobile-drawer={Boolean(onSelectMessage)}
     >
@@ -111,43 +120,48 @@ export function InboxWorkspace({
             <strong>Your inbox</strong>
             <span>{showFilters ? "Latest messages" : "Select to read"}</span>
           </div>
-          {showFilters && <>
-          <div className={styles.filters} aria-label="Filter overview messages">
-            <button
-              type="button"
-              aria-pressed={filter === "recent"}
-              onClick={() => setFilter("recent")}
-            >
-              Recent<span>{messages.length}</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={filter === "priority"}
-              onClick={() => setFilter("priority")}
-            >
-              <Zap size={12} />
-              Priority<span>{priorityCount}</span>
-            </button>
-          </div>
-          <div className={styles.search}>
-            <Search size={15} aria-hidden="true" />
-            <input
-              aria-label="Search overview emails"
-              placeholder="Find a sender or conversation…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear email search"
+          {showFilters && (
+            <>
+              <div
+                className={styles.filters}
+                aria-label="Filter overview messages"
               >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          </>}
+                <button
+                  type="button"
+                  aria-pressed={filter === "recent"}
+                  onClick={() => setFilter("recent")}
+                >
+                  Recent<span>{messages.length}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={filter === "priority"}
+                  onClick={() => setFilter("priority")}
+                >
+                  <Zap size={12} />
+                  Priority<span>{priorityCount}</span>
+                </button>
+              </div>
+              <div className={styles.search}>
+                <Search size={15} aria-hidden="true" />
+                <input
+                  aria-label="Search overview emails"
+                  placeholder="Find a sender or conversation…"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label="Clear email search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </>
+          )}
           <div className={styles.messageList}>
             {visibleMessages.map((message) => {
               const priority = isPriority(message, threshold);
@@ -237,7 +251,9 @@ export function InboxWorkspace({
           </div>
           <footer className={styles.listFooter}>
             <span aria-live="polite">
-              Showing {visibleMessages.length} of {matches.length} loaded
+              {showFilters
+                ? `Showing ${visibleMessages.length} of ${matches.length} loaded messages`
+                : `${visibleMessages.length} messages on this page`}
             </span>
             {onViewMessages && (
               <button type="button" onClick={onViewMessages}>

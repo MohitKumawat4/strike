@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx src/tests/e2e-subsystems.test.ts"
+    "test": "npx tsx src/tests/e2e-subsystems.test.ts",
+    "test:pipeline": "node src/tests/pipeline-controls.test.cjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

@@ -1,3 +1,4 @@
+import { saveUserSettings } from "@/database/user-settings";
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -159,18 +160,7 @@ export async function POST(request: NextRequest) {
                   });
 
                   if (userSetting) {
-                    const currentPrefs =
-                      (userSetting.notification_preferences as Record<string, unknown>) || {};
-                    await supabaseAdmin
-                      .from('user_settings')
-                      .update({
-                        notification_preferences: {
-                          ...currentPrefs,
-                          window_status: 'CLOSED',
-                        },
-                        updated_at: new Date().toISOString(),
-                      })
-                      .eq('id', userSetting.id);
+                    await saveUserSettings(supabaseAdmin, { user_id: userSetting.user_id, notification_preferences: { window_status: 'CLOSED' } });
                   }
                 }
               }

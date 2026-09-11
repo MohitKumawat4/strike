@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Trash2, X } from "lucide-react";
 
 type ConfirmModalProps = {
@@ -11,6 +12,7 @@ type ConfirmModalProps = {
   cancelLabel?: string;
   isDestructive?: boolean;
   isLoading?: boolean;
+  icon?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -23,9 +25,17 @@ export function ConfirmModal({
   cancelLabel = "Cancel",
   isDestructive = false,
   isLoading = false,
+  icon,
   onConfirm,
   onClose,
 }: ConfirmModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  // Mount check for safe SSR rendering with createPortal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Close on Escape key
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -37,14 +47,25 @@ export function ConfirmModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, isLoading, onClose]);
 
-  if (!isOpen) return null;
+  // Prevent background scrolling while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
 
-  return (
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
     <div
       className="modal-overlay"
       onClick={isLoading ? undefined : onClose}
       aria-modal="true"
       role="dialog"
+      style={{ zIndex: 9999 }}
     >
       <div
         className="modal-card"
@@ -74,7 +95,7 @@ export function ConfirmModal({
               color: isDestructive ? "var(--peach-glow)" : "var(--brand-plum-text)",
             }}
           >
-            {isDestructive ? <AlertTriangle size={20} /> : <Trash2 size={20} />}
+            {icon ? icon : isDestructive ? <AlertTriangle size={20} /> : <Trash2 size={20} />}
           </div>
           <button
             aria-label="Close modal"
@@ -150,6 +171,7 @@ export function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

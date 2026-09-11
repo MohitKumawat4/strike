@@ -1,5 +1,7 @@
 "use client";
 
+import ui from "./modern-tabs.module.css";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -257,7 +259,7 @@ export function ErrorLogsTab() {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   return (
-    <div className="overview-contrast-view">
+    <div className={ui.page}>
       {/* Header Row */}
       <div className="dashboard-title-row" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
         <div>

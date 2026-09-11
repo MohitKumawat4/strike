@@ -913,3 +913,13 @@
     transition: none !important;
   }
 }
+
+/* The full Messages workspace keeps long pages in a scrollable list. */
+@media (min-width: 701px) {
+  .workspace[data-full-inbox] .messageList {
+    max-height: 720px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+}

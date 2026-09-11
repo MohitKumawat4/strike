@@ -1,3 +1,5 @@
+import { getPipelineControls } from "@/common/pipeline-controls";
+import { saveUserSettings } from "@/database/user-settings";
 import { type NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/database/supabase/server";
 import { sendGreetings24hTemplate } from "@/modules/whatsapp/templates";
@@ -53,7 +55,7 @@ async function handleDailyBriefing(req: NextRequest) {
       return Boolean(
         s.whatsapp_destination &&
         s.whatsapp_destination.trim().length > 0 &&
-        !prefs.disable_processing
+        getPipelineControls(prefs).send_whatsapp && prefs.daily_briefing !== false
       );
     });
 
@@ -92,17 +94,9 @@ async function handleDailyBriefing(req: NextRequest) {
         });
 
         // Update user_settings with timestamp
-        await supabaseAdmin
-          .from("user_settings")
-          .update({
-            notification_preferences: {
-              ...prefs,
-              last_template_sent_at: new Date().toISOString(),
-              window_status: "CLOSING_SOON",
-            },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", recipient.id);
+        await saveUserSettings(supabaseAdmin, { user_id: recipient.user_id, notification_preferences: {
+          last_template_sent_at: new Date().toISOString(), window_status: "CLOSING_SOON",
+        }});
 
         dispatchedCount += 1;
       } catch (dispatchErr) {
