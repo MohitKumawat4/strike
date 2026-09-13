@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, MotionConfig, motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "framer-motion";
-import { ArrowDown, ArrowDownLeft, ArrowUpRight, AudioLines, Check, CheckCheck, Fingerprint, LockKeyhole, Mail, Menu, MessageCircle, Minus, Plus, Radio, ShieldCheck, SlidersHorizontal, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowDownLeft, ArrowUpRight, AudioLines, Check, CheckCheck, Fingerprint, Loader2, LockKeyhole, Mail, Menu, MessageCircle, Minus, Plus, Radio, ShieldCheck, SlidersHorizontal, X, Zap } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
 import { isSupabaseConfigured } from "@/config/supabase";
 import LandingDashboard from "./landing-dashboard";
@@ -109,6 +110,11 @@ const faqs = [
 ];
 
 export default function LandingExperience() {
+  const router = useRouter();
+  const [is_navigating, start_transition] = useTransition();
+  const [nav_target, set_nav_target] = useState<string | null>(null);
+  const [nav_percentage, set_nav_percentage] = useState(0);
+
   const [signedIn, setSignedIn] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -147,17 +153,69 @@ export default function LandingExperience() {
 
   const destination = signedIn ? "/dashboard" : "/signup";
   const actionLabel = signedIn ? "Open dashboard" : "Get started";
+  const workspace_destination = signedIn ? "/dashboard" : "/login";
+
+  // Prevent repeated clicks and show instantaneous loading feedback during route rendering
+  function handle_navigation(target_href: string, e?: React.MouseEvent) {
+    if (e) e.preventDefault();
+    if (is_navigating || nav_target) return;
+    set_nav_target(target_href);
+    set_nav_percentage(16);
+    start_transition(() => {
+      router.push(target_href);
+    });
+  }
+
+  // Realistic progressive percentage counter for active route rendering feedback
+  useEffect(() => {
+    if (!nav_target) {
+      return;
+    }
+    const timer = setInterval(() => {
+      set_nav_percentage((previous) => {
+        if (previous < 42) return previous + Math.floor(Math.random() * 10 + 12);
+        if (previous < 78) return previous + Math.floor(Math.random() * 6 + 6);
+        if (previous < 94) return previous + Math.floor(Math.random() * 3 + 1);
+        return 95; // Hold at 95% until server component finishes rendering and route mounts
+      });
+    }, 150);
+    return () => clearInterval(timer);
+  }, [nav_target]);
+
+  const is_destination_loading = nav_target === destination;
+  const is_workspace_loading = nav_target === workspace_destination;
+
   // data-motion-paused is set to "true" only when paused by the user, matching CSS selector .page[data-motion-paused="true"]
   return <MotionConfig reducedMotion={paused ? "always" : "user"}><div className={s.page} data-motion-paused={paused ? "true" : undefined}>
     <a className={s.skipLink} href="#main">Skip to content</a>
     {!paused && <motion.div className={s.scrollProgress} style={{ scaleX: reduced ? scrollYProgress : progress }} aria-hidden="true" />}
-    <header className={s.header}><div className={s.navInner}><Brand /><nav className={s.desktopNav} aria-label="Main navigation"><a href="#product">The product</a><a href="#how-it-works">How it works</a><a href="#privacy">Built on trust</a></nav><div className={s.navActions}><Link href={signedIn ? "/dashboard" : "/login"} className={s.login}>{signedIn ? "Your workspace" : "Log in"}</Link><Link className={s.navCta} href={destination}>{actionLabel}<ArrowUpRight size={15} /></Link><button className={s.menuToggle} type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div></div>
-      {menuOpen && <nav id="mobile-navigation" className={s.mobileNav} aria-label="Mobile navigation"><a href="#product" onClick={() => setMenuOpen(false)}>The product<ArrowUpRight size={18} /></a><a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works<ArrowUpRight size={18} /></a><a href="#privacy" onClick={() => setMenuOpen(false)}>Built on trust<ArrowUpRight size={18} /></a><Link href={signedIn ? "/dashboard" : "/login"}>{signedIn ? "Your workspace" : "Log in"}<ArrowUpRight size={18} /></Link></nav>}
+
+    {/* Screen-level percentage loader & progress bar while dashboard is rendering */}
+    {nav_target && (
+      <div
+        className={s.topProgressContainer}
+        role="progressbar"
+        aria-valuenow={nav_percentage}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Loading dashboard"
+      >
+        <div className={s.topProgressBar} style={{ width: `${nav_percentage}%` }} />
+        <div className={s.topProgressPill}>
+          <Loader2 size={13} className={s.pillSpinner} />
+          <span>{nav_target === "/dashboard" ? "Rendering dashboard…" : "Connecting to workspace…"}</span>
+          <span className={s.pillPercentage}>{nav_percentage}%</span>
+        </div>
+      </div>
+    )}
+
+    <header className={s.header}><div className={s.navInner}><Brand /><nav className={s.desktopNav} aria-label="Main navigation"><a href="#product">The product</a><a href="#how-it-works">How it works</a><a href="#privacy">Built on trust</a></nav><div className={s.navActions}><a href={workspace_destination} onClick={(e) => handle_navigation(workspace_destination, e)} className={`${s.login} ${is_workspace_loading ? s.buttonLoading : ""}`} aria-busy={is_workspace_loading} aria-disabled={Boolean(nav_target)}>{is_workspace_loading ? <span className={s.inlineLoading}><Loader2 size={12} className={s.spinIcon} /><span>{signedIn ? "Opening…" : "Logging in…"}</span></span> : (signedIn ? "Your workspace" : "Log in")}</a><a className={`${s.navCta} ${is_destination_loading ? s.buttonLoading : ""}`} href={destination} onClick={(e) => handle_navigation(destination, e)} aria-busy={is_destination_loading} aria-disabled={Boolean(nav_target)}>{is_destination_loading ? <><span>{signedIn ? "Opening dashboard…" : "Loading…"}</span><Loader2 size={15} className={s.spinIcon} /></> : <>{actionLabel}<ArrowUpRight size={15} /></>}</a><button className={s.menuToggle} type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div></div>
+      {menuOpen && <nav id="mobile-navigation" className={s.mobileNav} aria-label="Mobile navigation"><a href="#product" onClick={() => setMenuOpen(false)}>The product<ArrowUpRight size={18} /></a><a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works<ArrowUpRight size={18} /></a><a href="#privacy" onClick={() => setMenuOpen(false)}>Built on trust<ArrowUpRight size={18} /></a><a href={workspace_destination} onClick={(e) => { setMenuOpen(false); handle_navigation(workspace_destination, e); }} className={is_workspace_loading ? s.buttonLoading : ""} aria-busy={is_workspace_loading} aria-disabled={Boolean(nav_target)}>{is_workspace_loading ? <><span className={s.inlineLoading}><Loader2 size={14} className={s.spinIcon} /><span>{signedIn ? "Opening workspace…" : "Logging in…"}</span></span><Loader2 size={18} className={s.spinIcon} /></> : <>{signedIn ? "Your workspace" : "Log in"}<ArrowUpRight size={18} /></>}</a></nav>}
     </header>
 
     <main id="main">
       <section className={s.hero}>
-        <div className={s.heroCopy}><Reveal><span className={s.heroEyebrow}><span className={s.signalDot} /> EMAIL INTELLIGENCE. HUMAN PRIORITIES.</span></Reveal><Reveal delay={0.08}><h1>Stay in <br />the loop.<br /><span className={s.heroSerif}>Out of the <br />inbox.</span><span className={s.headingPeriod}>*</span></h1></Reveal><Reveal delay={0.16}><p className={s.heroDescription}>Your inbox is full. <br />Your attention shouldn’t be.<br /><span>Strike turns the emails that matter into clear, actionable briefs. Straight to your WhatsApp.</span></p><div className={s.heroActions}><Link href={destination} className={s.primaryButton}>{signedIn ? "Open your dashboard" : "Find your focus"}<ArrowUpRight size={19} /></Link><a href="#product" className={s.textButton}><span className={s.playIcon}><ArrowDown size={15} /></span>See it in action</a></div></Reveal></div>
+        <div className={s.heroCopy}><Reveal><span className={s.heroEyebrow}><span className={s.signalDot} /> EMAIL INTELLIGENCE. HUMAN PRIORITIES.</span></Reveal><Reveal delay={0.08}><h1>Stay in <br />the loop.<br /><span className={s.heroSerif}>Out of the <br />inbox.</span><span className={s.headingPeriod}>*</span></h1></Reveal><Reveal delay={0.16}><p className={s.heroDescription}>Your inbox is full. <br />Your attention shouldn’t be.<br /><span>Strike turns the emails that matter into clear, actionable briefs. Straight to your WhatsApp.</span></p><div className={s.heroActions}><a href={destination} onClick={(e) => handle_navigation(destination, e)} className={`${s.primaryButton} ${is_destination_loading ? s.buttonLoading : ""}`} aria-busy={is_destination_loading} aria-disabled={Boolean(nav_target)}>{is_destination_loading ? <><span>{signedIn ? "Opening your dashboard…" : "Loading…"}</span><Loader2 size={19} className={s.spinIcon} /></> : <>{signedIn ? "Open your dashboard" : "Find your focus"}<ArrowUpRight size={19} /></>}</a><a href="#product" className={s.textButton}><span className={s.playIcon}><ArrowDown size={15} /></span>See it in action</a></div></Reveal></div>
         <SignalSculpture paused={paused} />
         <div className={s.heroFootnote}><span><ShieldCheck size={15} /> Your Gmail. Your WhatsApp. A little more space.</span><a href="#product">SCROLL TO FIND YOUR SIGNAL<ArrowDown size={14} /></a></div>
       </section>
@@ -172,15 +230,16 @@ export default function LandingExperience() {
 
       <Journey paused={paused} />
 
-      <section className={s.manifesto}><Reveal><span className={s.eyebrow}>THIS IS WHAT HEADSPACE LOOKS LIKE.</span><h2>Be there for the deal.<br />The big idea.<br /><span>The rest of your life.</span></h2><div className={s.manifestoBottom}><StrikeMark /><p>Your best work doesn’t happen in your inbox.<br />We’re here to help you get back to it.</p><a href={destination} className={s.roundArrow} aria-label={actionLabel}><ArrowUpRight size={25} /></a></div></Reveal><span className={s.manifestoAsterisk} aria-hidden="true">✳</span></section>
+      <section className={s.manifesto}><Reveal><span className={s.eyebrow}>THIS IS WHAT HEADSPACE LOOKS LIKE.</span><h2>Be there for the deal.<br />The big idea.<br /><span>The rest of your life.</span></h2><div className={s.manifestoBottom}><StrikeMark /><p>Your best work doesn’t happen in your inbox.<br />We’re here to help you get back to it.</p><a href={destination} onClick={(e) => handle_navigation(destination, e)} className={`${s.roundArrow} ${is_destination_loading ? s.buttonLoading : ""}`} aria-label={is_destination_loading ? "Opening dashboard…" : actionLabel} aria-busy={is_destination_loading} aria-disabled={Boolean(nav_target)}>{is_destination_loading ? <Loader2 size={25} className={s.spinIcon} /> : <ArrowUpRight size={25} />}</a></div></Reveal><span className={s.manifestoAsterisk} aria-hidden="true">✳</span></section>
 
       <section id="privacy" className={s.trustSection}><div className={s.sectionTop}><span className={s.eyebrow}>PERSONAL MEANS PERSONAL.</span><span className={s.sectionIndex}>03 / BUILT ON TRUST</span></div><div className={s.trustGrid}><Reveal><div className={s.trustArt} aria-hidden="true"><div className={s.trustRing} /><div className={s.fingerprint}><Fingerprint size={100} strokeWidth={0.8} /></div><span className={s.trustStamp}><ShieldCheck size={14} /> YOUR INBOX. YOUR CONTROL.</span></div></Reveal><Reveal><h2>Earned access.<br /><span>Never assumed.</span></h2><p>Your email is personal. Connecting it to something new should feel like a decision you understand.</p><div className={s.trustRow}><LockKeyhole size={19} /><div><h3>Your password stays with Google.</h3><p>Connect through Google OAuth. Strike never asks for your Gmail password.</p></div></div><div className={s.trustRow}><SlidersHorizontal size={19} /><div><h3>You set the boundaries.</h3><p>Choose your delivery preferences and disconnect your Gmail account from your dashboard.</p></div></div><div className={s.trustRow}><ShieldCheck size={19} /><div><h3>Clarity about your data, too.</h3><p>Understand what’s processed, which services help deliver your briefs, and how to request deletion.</p></div></div><Link href="/privacy" className={s.privacyLink}>Read our privacy policy<ArrowUpRight size={16} /></Link></Reveal></div></section>
 
       <section id="questions" className={s.faqSection}><Reveal><span className={s.eyebrow}>A LITTLE MORE CLARITY.</span><h2>Good questions.<br /><span>Straight answers.</span></h2><p>Still curious?<br /><a href="mailto:mohitkumawatwork@gmail.com">Say hello <ArrowUpRight size={14} /></a></p></Reveal><div className={s.faqList}>{faqs.map((faq, i) => <div key={faq.question} className={`${s.faqItem} ${openFaq === i ? s.faqOpen : ""}`}><h3><button type="button" aria-expanded={openFaq === i} aria-controls={`faq-answer-${i}`} id={`faq-question-${i}`} onClick={() => setOpenFaq(openFaq === i ? null : i)}><span>{faq.question}</span>{openFaq === i ? <Minus size={18} /> : <Plus size={18} />}</button></h3><div id={`faq-answer-${i}`} role="region" aria-labelledby={`faq-question-${i}`} hidden={openFaq !== i}><p>{faq.answer}</p></div></div>)}</div></section>
 
-      <section className={s.finalCta}><div className={s.ctaTop}><span className={s.eyebrow}><span className={s.signalDot} /> LESS NOISE STARTS HERE.</span><span>MAKE ROOM FOR WHAT MATTERS.</span></div><Reveal><h2>A little less inbox.<br /><span>A little more you.</span></h2><Link href={destination} className={s.primaryButton}>{signedIn ? "Open your dashboard" : "Get started with Strike"}<ArrowUpRight size={20} /></Link><p>Connect your Gmail. Find your signal.</p></Reveal><div className={s.ctaOrbit} aria-hidden="true"><StrikeMark /></div></section>
+      <section className={s.finalCta}><div className={s.ctaTop}><span className={s.eyebrow}><span className={s.signalDot} /> LESS NOISE STARTS HERE.</span><span>MAKE ROOM FOR WHAT MATTERS.</span></div><Reveal><h2>A little less inbox.<br /><span>A little more you.</span></h2><a href={destination} onClick={(e) => handle_navigation(destination, e)} className={`${s.primaryButton} ${is_destination_loading ? s.buttonLoading : ""}`} aria-busy={is_destination_loading} aria-disabled={Boolean(nav_target)}>{is_destination_loading ? <><span>{signedIn ? "Opening your dashboard…" : "Getting started…"}</span><Loader2 size={20} className={s.spinIcon} /></> : <>{signedIn ? "Open your dashboard" : "Get started with Strike"}<ArrowUpRight size={20} /></>}</a><p>Connect your Gmail. Find your signal.</p></Reveal><div className={s.ctaOrbit} aria-hidden="true"><StrikeMark /></div></section>
     </main>
 
     <footer className={s.footer}><div className={s.footerTop}><Brand /><p>Intelligence for your inbox.<br />Space for everything else.</p><a href="#main" className={s.backTop}>Back to top<ArrowUpRight size={17} /></a></div><div className={s.footerBottom}><span>© {new Date().getFullYear()} Strike</span><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="mailto:mohitkumawatwork@gmail.com">Contact</a><button type="button" aria-pressed={paused} onClick={() => setPaused(!paused)}><span className={paused ? s.motionOff : s.motionOn} />{paused ? "Motion paused" : "Pause motion"}</button></div><span>LESS, BUT BETTER.</span></div></footer>
   </div></MotionConfig>;
 }
+

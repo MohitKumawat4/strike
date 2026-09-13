@@ -470,6 +470,85 @@
   .footerBottom > div { width: 100%; justify-content: space-between; gap: 13px; }
   .footerBottom button { font-size: 8px; }
 }
+/* Loading feedback styles for navigation to dashboard */
+.buttonLoading {
+  cursor: wait !important;
+  opacity: 0.88;
+  pointer-events: none;
+}
+
+.spinIcon {
+  animation: spinLoader 1s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spinLoader {
+  to { transform: rotate(360deg); }
+}
+
+.inlineLoading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topProgressContainer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.topProgressBar {
+  height: 3px;
+  background: linear-gradient(90deg, #86ab43, #d6f58a, #86ab43);
+  box-shadow: 0 0 10px #d6f58a80;
+  transition: width 0.22s ease-out;
+}
+
+.topProgressPill {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #1e2821f0;
+  color: #f6f5f0;
+  border: 1px solid #d6f58a40;
+  border-radius: 9999px;
+  box-shadow: 0 8px 30px #00000030;
+  backdrop-filter: blur(12px);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  animation: pillFadeIn 0.25s ease-out;
+}
+
+@keyframes pillFadeIn {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.pillSpinner {
+  animation: spinLoader 1s linear infinite;
+  color: #d6f58a;
+  flex-shrink: 0;
+}
+
+.pillPercentage {
+  font-family: monospace;
+  font-weight: 700;
+  color: #d6f58a;
+  background: #ffffff18;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :global(html):has(.page) { scroll-behavior: auto; }
   .page *, .page *::before, .page *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
