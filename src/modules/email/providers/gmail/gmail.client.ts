@@ -1,3 +1,4 @@
+import { isGmailNotFound } from "./gmail.errors";
 import { google } from "googleapis";
 import { getServerEnv } from "@/config/server-env";
 import { decryptToken } from "@/common/crypto/encryption";
@@ -70,8 +71,7 @@ export async function exchangeCodeAndFetchProfile(code: string) {
 
   try {
     // 1. Fetch the connected Gmail mailbox profile
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-    const profileResponse = await gmail.users.getProfile({ userId: "me" });
+    const profileResponse = await createGmailGateway(oauth2Client).getProfile();
     emailAddress = profileResponse.data.emailAddress ?? undefined;
     historyId = profileResponse.data.historyId ?? null;
   } catch (profileErr) {
@@ -112,20 +112,32 @@ export async function modifyGmailMessage(
     removeLabelIds?: string[];
   }
 ) {
-  const refreshToken = decryptToken(encryptedRefreshToken);
-  const oauth2Client = getGoogleOAuthClient();
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-  const res = await gmail.users.messages.modify({
-    userId: "me",
-    id: providerMessageId,
-    requestBody: {
-      addLabelIds: options.addLabelIds || [],
-      removeLabelIds: options.removeLabelIds || [],
-    },
-  });
+  const res = await createGmailGateway(encryptedRefreshToken).modifyMessage(providerMessageId, options);
 
   return res.data;
+}
+
+/** The only Gmail API transport boundary. Callers never construct SDK clients. */
+export function createGmailGateway(credentials: string | ReturnType<typeof getGoogleOAuthClient>) {
+  const auth = typeof credentials === "string" ? getGoogleOAuthClient() : credentials;
+  if (typeof credentials === "string") auth.setCredentials({ refresh_token: decryptToken(credentials) });
+  const gmail = google.gmail({ version: "v1", auth, timeout: 10000 });
+  return {
+    modifyMessage: (id: string, options: { addLabelIds?: string[]; removeLabelIds?: string[] }) =>
+      gmail.users.messages.modify({ userId: "me", id, requestBody: { addLabelIds: options.addLabelIds || [], removeLabelIds: options.removeLabelIds || [] } }),
+    listMessages: (maxResults: number, pageToken?: string) => gmail.users.messages.list({ userId: "me", maxResults, pageToken }),
+    getMessage: async (id: string) => {
+      try {
+        return await gmail.users.messages.get({ userId: "me", id, format: "full" });
+      } catch (error) {
+        if (!isGmailNotFound(error)) throw error;
+        console.warn("GMAIL_MESSAGE_UNAVAILABLE", { providerMessageId: id, status: 404 });
+        return { data: null };
+      }
+    },
+    getProfile: () => gmail.users.getProfile({ userId: "me" }),
+    listHistory: (startHistoryId: string, pageToken?: string) => gmail.users.history.list({ userId: "me", startHistoryId, pageToken, maxResults: 10, historyTypes: ["messageAdded"] }),
+    watch: (topicName: string) => gmail.users.watch({ userId: "me", requestBody: { topicName, labelIds: ["INBOX"], labelFilterBehavior: "INCLUDE" } }),
+    stop: () => gmail.users.stop({ userId: "me" }),
+  };
 }

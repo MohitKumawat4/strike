@@ -1,13 +1,36 @@
-import { saveUserSettings } from "@/database/user-settings";
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 60 seconds
 
+/**
+ * Validates the X-Hub-Signature-256 header sent by Meta to ensure the webhook payload
+ * has not been tampered with and genuinely originates from Meta.
+ */
+function verifyMetaSignature(rawBody: string, signatureHeader: string | null, appSecret: string): boolean {
+  if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
+    return false;
+  }
+  const signature = signatureHeader.slice(7);
+  const expectedSignature = crypto
+    .createHmac('sha256', appSecret)
+    .update(rawBody, 'utf8')
+    .digest('hex');
+
+  const signatureBuffer = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+  if (signatureBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+}
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required.');
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
@@ -62,9 +85,9 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'strike_whatsapp_verify_token_2026';
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
-  if (mode === 'subscribe' && token === verifyToken) {
+  if (verifyToken && mode === 'subscribe' && token === verifyToken) {
     console.log('✅ WhatsApp webhook verified successfully');
     return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
   }
@@ -77,7 +100,20 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: WhatsAppWebhookPayload = await request.json();
+    const rawBody = await request.text();
+    const appSecret = process.env.META_APP_SECRET;
+
+    // Verify Meta X-Hub-Signature-256 when META_APP_SECRET is configured
+    if (!appSecret) return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+    {
+      const signatureHeader = request.headers.get('x-hub-signature-256');
+      if (!verifyMetaSignature(rawBody, signatureHeader, appSecret)) {
+        console.warn('❌ WhatsApp webhook signature verification failed.');
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      }
+    }
+
+    const body: WhatsAppWebhookPayload = JSON.parse(rawBody);
 
     if (body.object !== 'whatsapp_business_account') {
       return NextResponse.json({ status: 'ignored' }, { status: 200 });
@@ -91,81 +127,14 @@ export async function POST(request: NextRequest) {
 
         const { value } = change;
 
-        // 1. Process Status Callbacks (sent, delivered, read, failed)
-        if (value.statuses && value.statuses.length > 0) {
-          for (const status of value.statuses) {
-            console.log(
-              `📋 WhatsApp Status update: ${status.status} for msg ${status.id} (${status.recipient_id})`
-            );
-
-            if (status.id) {
-              const dbStatus =
-                status.status === 'delivered' || status.status === 'read'
-                  ? 'delivered'
-                  : status.status === 'failed'
-                  ? 'failed'
-                  : 'sending';
-
-              await supabaseAdmin
-                .from('delivery_attempts')
-                .update({
-                  status: dbStatus,
-                  ...(dbStatus === 'delivered' ? { delivered_at: new Date().toISOString() } : {}),
-                  ...(dbStatus === 'failed'
-                    ? {
-                        failed_at: new Date().toISOString(),
-                        error_code: status.errors?.[0]?.message || 'META_DELIVERY_FAILED',
-                      }
-                    : {}),
-                })
-                .eq('provider_message_id', status.id);
-
-              // If Meta reports failure due to expired 24h window (code 131047 / "24 hours")
-              if (dbStatus === 'failed') {
-                const isWindowExpiredError = status.errors?.some(
-                  (e) =>
-                    e.code === 131047 ||
-                    (e.message && e.message.toLowerCase().includes('24 hours'))
-                );
-
-                if (isWindowExpiredError) {
-                  // 1. Find message_id and convert status to DELIVERY_PENDING
-                  const { data: attempt } = await supabaseAdmin
-                    .from('delivery_attempts')
-                    .select('message_id')
-                    .eq('provider_message_id', status.id)
-                    .maybeSingle();
-
-                  if (attempt?.message_id) {
-                    await supabaseAdmin
-                      .from('email_messages')
-                      .update({ processing_status: 'DELIVERY_PENDING' })
-                      .eq('id', attempt.message_id);
-                  }
-
-                  // 2. Mark window as closed in user_settings
-                  const cleanPhone = (status.recipient_id || '').replace(/\D/g, '');
-                  const { data: allSettings } = await supabaseAdmin
-                    .from('user_settings')
-                    .select('id, user_id, whatsapp_destination, notification_preferences')
-                    .not('whatsapp_destination', 'is', null);
-
-                  const userSetting = (allSettings || []).find((s) => {
-                    const destDigits = (s.whatsapp_destination || '').replace(/\D/g, '');
-                    return (
-                      destDigits === cleanPhone ||
-                      destDigits.endsWith(cleanPhone) ||
-                      cleanPhone.endsWith(destDigits)
-                    );
-                  });
-
-                  if (userSetting) {
-                    await saveUserSettings(supabaseAdmin, { user_id: userSetting.user_id, notification_preferences: { window_status: 'CLOSED' } });
-                  }
-                }
-              }
-            }
-          }
+        // Receipts can arrive before send acknowledgement; store and reconcile atomically.
+        for (const status of value.statuses || []) {
+          const { error } = await supabaseAdmin.rpc("strike_delivery_receipt", {
+            p_provider: status.id, p_status: status.status,
+            p_at: new Date(Number(status.timestamp) * 1000).toISOString(),
+            p_error: status.errors?.[0]?.code?.toString() || null,
+          });
+          if (error) throw error;
         }
 
         // 2. Process Inbound Messages and Interactive Button Replies
@@ -183,28 +152,26 @@ export async function POST(request: NextRequest) {
             .select('id, user_id, whatsapp_destination, notification_preferences')
             .not('whatsapp_destination', 'is', null);
 
-          const matchedSetting = (allSettings || []).find((s) => {
+          const matchedSettings = (allSettings || []).filter((s) => {
             const destDigits = (s.whatsapp_destination || '').replace(/\D/g, '');
             return (
-              destDigits === cleanFromDigits ||
-              destDigits.endsWith(cleanFromDigits) ||
-              cleanFromDigits.endsWith(destDigits)
+              destDigits.length > 0 && destDigits === cleanFromDigits
             );
           });
 
+          const matchedSetting = matchedSettings.length === 1 ? matchedSettings[0] : null;
           const userId = matchedSetting?.user_id;
 
           // 2. Open / Refresh 24-Hour Messaging Window & Flush Stacked Emails
           if (userId) {
             const inboundText = msg.text?.body || msg.interactive?.button_reply?.title || null;
-            const { openWhatsApp24hWindow, flushStackedEmailAlerts, sendWhatsAppMessage } =
+            const { openWhatsApp24hWindow, flushStackedEmailAlerts } =
               await import('@/modules/whatsapp');
 
             // Re-open window in database and system audit log
             await openWhatsApp24hWindow(supabaseAdmin, userId, fromPhone, inboundText);
 
             // Handle Interactive Button Replies (e.g. "Mark Read", "Archive", "Open Strike")
-            let handledAction = false;
             if (msg.type === 'interactive' && msg.interactive?.button_reply) {
               const buttonId = msg.interactive.button_reply.id;
               const buttonTitle = msg.interactive.button_reply.title;
@@ -216,24 +183,19 @@ export async function POST(request: NextRequest) {
                 buttonId.startsWith('archive_') ||
                 buttonId.startsWith('handled_')
               ) {
-                handledAction = true;
                 const msgIdPrefix = buttonId.replace(/^(read_|archive_|handled_)/, '');
 
-                // 1. Locate message
+                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(msgIdPrefix)) continue;
+                // 1. Locate the exact message owned by this recipient
                 const { data: emailMsg } = await supabaseAdmin
                   .from('email_messages')
                   .select('id, account_id, provider_message_id')
-                  .ilike('id', `${msgIdPrefix}%`)
+                  .eq('id', msgIdPrefix)
+                  .eq('user_id', userId)
                   .limit(1)
                   .maybeSingle();
 
                 if (emailMsg) {
-                  // 2. Update status in database
-                  await supabaseAdmin
-                    .from('email_messages')
-                    .update({ processing_status: 'PROCESSED' })
-                    .eq('id', emailMsg.id);
-
                   // 3. Perform 2-Way Sync to Gmail if account token exists
                   try {
                     const { data: account } = await supabaseAdmin
@@ -286,49 +248,6 @@ export async function POST(request: NextRequest) {
               `🚀 Flushed ${flushResult.flushedCount} stacked email alert(s) for user ${userId}`
             );
 
-            // If user sent a greeting or quick action and NO stacked emails were waiting, send reassurance
-            if (flushResult.flushedCount === 0 && !handledAction) {
-              const rawText = (
-                msg.text?.body ||
-                msg.interactive?.button_reply?.title ||
-                ''
-              )
-                .trim()
-                .toLowerCase();
-              const isGreetingOrAck =
-                rawText === 'hi' ||
-                rawText === 'hello' ||
-                rawText === 'hey' ||
-                rawText === 'activate stream' ||
-                rawText === 'ready for briefing' ||
-                rawText === 'view inbox' ||
-                msg.interactive?.button_reply?.id === 'ACTIVATE_STREAM' ||
-                msg.interactive?.button_reply?.id === 'START_DAY' ||
-                msg.interactive?.button_reply?.id === 'VIEW_INBOX';
-
-              if (isGreetingOrAck) {
-                const ackText = [
-                  '⚡ *Strike Intelligence: Connected & Active* ⚡',
-                  '',
-                  'Your 24-hour priority briefing window is now *ACTIVE*.',
-                  '• You are completely caught up with your inbox.',
-                  '• You will receive instant AI executive summaries when high-priority emails arrive.',
-                  '',
-                  '🚀 _Strike Email Intelligence Dashboard_',
-                ].join('\n');
-
-                try {
-                  await sendWhatsAppMessage(
-                    destinationPhone,
-                    'text',
-                    { body: ackText },
-                    { user_id: userId }
-                  );
-                } catch (ackErr) {
-                  console.warn('Could not send window active ack message:', ackErr);
-                }
-              }
-            }
           }
 
           // Optional: Store inbound message in whatsapp_messages if table exists

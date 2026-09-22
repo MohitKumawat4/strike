@@ -50,7 +50,7 @@ function senderName(message: EmailMessage) {
 function shortDate(value: string | null) {
   const date = value ? new Date(value) : null;
   return date && !Number.isNaN(date.getTime())
-    ? date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    ? date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata", timeZoneName: "short" })
     : "—";
 }
 

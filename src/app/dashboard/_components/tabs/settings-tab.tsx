@@ -3,7 +3,7 @@
 import { saveUserSettings } from "@/database/user-settings";
 import ui from "./modern-tabs.module.css";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
 import { useRouter } from "next/navigation";
 import {
@@ -27,6 +27,7 @@ import {
 
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
 import type { UserSettings } from "../dashboard-shell";
+import { ConfirmModal } from "../confirm-modal";
 
 const COUNTRY_CODES = [
   { code: "+91", label: "India (+91)", flag: "🇮🇳" },
@@ -105,6 +106,7 @@ export function SettingsTab({
   const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [is_sign_out_modal_open, set_is_sign_out_modal_open] = useState(false);
 
   /* Parse existing phone into country code and local number */
   const initialPhone = parseInitialPhone(userSettings?.whatsapp_destination);
@@ -126,9 +128,6 @@ export function SettingsTab({
   const [notifyFailures, setNotifyFailures] = useState(
     userSettings?.notify_on_failure ?? true,
   );
-  const [disableProcessing, setDisableProcessing] = useState(
-    userSettings?.disable_processing ?? false,
-  );
 
   /* Custom AI Priority Rules State */
   const [customInstructions, setCustomInstructions] = useState(
@@ -145,6 +144,8 @@ export function SettingsTab({
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const draftDirty = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   /* Test WhatsApp delivery state */
@@ -161,7 +162,7 @@ export function SettingsTab({
 
   /* Sync state whenever userSettings prop updates from server */
   useEffect(() => {
-    if (userSettings) {
+    if (userSettings && !draftDirty.current) {
       setSavedDestination(userSettings.whatsapp_destination ?? null);
       const parsed = parseInitialPhone(userSettings.whatsapp_destination);
       setCountryCode(parsed.code);
@@ -178,9 +179,6 @@ export function SettingsTab({
       if (userSettings.notify_on_failure !== undefined) {
         setNotifyFailures(userSettings.notify_on_failure);
       }
-      if (userSettings.disable_processing !== undefined) {
-        setDisableProcessing(userSettings.disable_processing);
-      }
       if (userSettings.custom_priority_rules) {
         setCustomInstructions(
           userSettings.custom_priority_rules.instructions ?? "",
@@ -194,6 +192,7 @@ export function SettingsTab({
   }, [userSettings]);
 
   function handleAddVipSender() {
+    draftDirty.current = true;
     const trimmed = vipInput.trim().toLowerCase().replace(/^@/, "");
     if (!trimmed) return;
     if (!vipSenders.includes(trimmed)) {
@@ -203,10 +202,12 @@ export function SettingsTab({
   }
 
   function handleRemoveVipSender(target: string) {
+    draftDirty.current = true;
     setVipSenders(vipSenders.filter((s) => s !== target));
   }
 
   function handleAddIgnoreKeyword() {
+    draftDirty.current = true;
     const trimmed = ignoreInput.trim().toLowerCase();
     if (!trimmed) return;
     if (!ignoreKeywords.includes(trimmed)) {
@@ -216,15 +217,16 @@ export function SettingsTab({
   }
 
   function handleRemoveIgnoreKeyword(target: string) {
+    draftDirty.current = true;
     setIgnoreKeywords(ignoreKeywords.filter((k) => k !== target));
   }
 
-  /* Sign out handler */
+  /* Sign out handler - redirects to landing page */
   async function handleSignOut() {
     setIsSigningOut(true);
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
-    router.replace("/login");
+    router.replace("/");
     router.refresh();
   }
 
@@ -238,7 +240,7 @@ export function SettingsTab({
       } = await supabase.auth.getUser();
 
       if (user) {
-        await saveUserSettings(supabase, {
+        const { error: saveError } = await saveUserSettings(supabase, {
           user_id: user.id,
           whatsapp_destination: null,
           importance_threshold: importanceThreshold,
@@ -246,9 +248,11 @@ export function SettingsTab({
           notification_preferences: {
             notify_on_important: notifyImportant,
             notify_on_failure: notifyFailures,
+            ...(userSettings?.pipeline ? { pipeline: userSettings.pipeline } : {}),
           },
           updated_at: new Date().toISOString(),
         });
+        if (saveError) throw saveError;
       }
 
       setSavedDestination(null);
@@ -261,12 +265,13 @@ export function SettingsTab({
         notify_on_important: notifyImportant,
         notify_on_failure: notifyFailures,
         whatsapp_destination: null,
-        disable_processing: disableProcessing,
+        pipeline: userSettings?.pipeline,
+        disable_processing: false,
       });
 
       router.refresh();
     } catch (err) {
-      console.error("Failed to disconnect WhatsApp:", err);
+      setSaveError(err instanceof Error ? err.message : "Could not disconnect WhatsApp.");
     } finally {
       setIsDisconnecting(false);
     }
@@ -316,7 +321,7 @@ export function SettingsTab({
             ignoreKeywords,
           };
 
-          await saveUserSettings(supabase, {
+          const { error: saveError } = await saveUserSettings(supabase, {
             user_id: user.id,
             whatsapp_destination: fullWhatsappDestination,
             importance_threshold: importanceThreshold,
@@ -324,10 +329,12 @@ export function SettingsTab({
             notification_preferences: {
               notify_on_important: notifyImportant,
               notify_on_failure: notifyFailures,
+              ...(userSettings?.pipeline ? { pipeline: userSettings.pipeline } : {}),
             },
             custom_priority_rules: rulesObj,
             updated_at: new Date().toISOString(),
           });
+          if (saveError) throw saveError;
 
           setSavedDestination(fullWhatsappDestination);
           onUpdateUserSettings?.({
@@ -337,6 +344,8 @@ export function SettingsTab({
             notify_on_failure: notifyFailures,
             whatsapp_destination: fullWhatsappDestination,
             custom_priority_rules: rulesObj,
+            pipeline: userSettings?.pipeline,
+            disable_processing: false,
           });
           router.refresh();
         }
@@ -355,6 +364,7 @@ export function SettingsTab({
   async function handleSave() {
     setIsSaving(true);
     setSaveSuccess(false);
+    setSaveError(null);
 
     try {
       const supabase = createSupabaseBrowserClient();
@@ -362,7 +372,7 @@ export function SettingsTab({
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (!user) return;
+      if (!user) throw new Error("Please sign in again to save preferences.");
 
       const rulesObj = {
         instructions: customInstructions.trim(),
@@ -378,14 +388,14 @@ export function SettingsTab({
         notification_preferences: {
           notify_on_important: notifyImportant,
           notify_on_failure: notifyFailures,
+          ...(userSettings?.pipeline ? { pipeline: userSettings.pipeline } : {}),
         },
         custom_priority_rules: rulesObj,
         updated_at: new Date().toISOString(),
       });
 
       if (error) {
-        console.error("Failed to save settings:", error);
-        return;
+        throw error;
       }
 
       setSavedDestination(fullWhatsappDestination || null);
@@ -396,14 +406,16 @@ export function SettingsTab({
         notify_on_failure: notifyFailures,
         whatsapp_destination: fullWhatsappDestination || null,
         custom_priority_rules: rulesObj,
-        disable_processing: disableProcessing,
+        pipeline: userSettings?.pipeline,
+        disable_processing: false,
       });
 
+      draftDirty.current = false;
       setSaveSuccess(true);
       router.refresh();
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      console.error("Failed to save settings:", err);
+      setSaveError(err instanceof Error ? err.message : "Could not save preferences. Please retry.");
     } finally {
       setIsSaving(false);
     }
@@ -413,7 +425,8 @@ export function SettingsTab({
   const initials = email.slice(0, 2).toUpperCase();
 
   return (
-    <div className={ui.page}>
+    <div className={ui.page} onChangeCapture={() => { draftDirty.current = true; }}>
+      {saveError && <p role="alert">{saveError}</p>}
       {/* Header */}
       <div className="dashboard-title-row">
         <div>
@@ -1310,7 +1323,7 @@ export function SettingsTab({
           <button
             className="secondary-button danger-button"
             disabled={isSigningOut}
-            onClick={handleSignOut}
+            onClick={() => set_is_sign_out_modal_open(true)}
             type="button"
           >
             <LogOut size={14} />
@@ -1318,6 +1331,20 @@ export function SettingsTab({
           </button>
         </div>
       </div>
+
+      {/* Sign Out Confirmation Modal */}
+      <ConfirmModal
+        isOpen={is_sign_out_modal_open}
+        title="Sign out of Strike?"
+        description="Are you sure you want to sign out? You will be returned to the landing page and will need to sign in again to access your workspace."
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        isDestructive={true}
+        isLoading={isSigningOut}
+        icon={<LogOut size={20} />}
+        onConfirm={handleSignOut}
+        onClose={() => set_is_sign_out_modal_open(false)}
+      />
     </div>
   );
 }

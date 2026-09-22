@@ -1,5 +1,5 @@
 import { generateStructuredAiJson } from "../ai.client";
-import { decodeHtmlEntities, convertHtmlToCleanText } from "@/modules/email/ingestion/initial-sync";
+import { decodeHtmlEntities, convertHtmlToCleanText } from "@/modules/email/ingestion/email-content";
 
 export type ExtractedActionItem = {
   action: string;

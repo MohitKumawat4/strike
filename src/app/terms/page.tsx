@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, FileText, Mail, Shield, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, Mail, Sparkles } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Terms of Service — Strike Email Intelligence",

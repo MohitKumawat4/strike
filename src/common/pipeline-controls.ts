@@ -13,7 +13,8 @@ export const DEFAULT_PIPELINE: PipelineControls = {
 export function getPipelineControls(preferences: unknown): PipelineControls {
   const prefs = (preferences ?? {}) as Record<string, unknown>;
   const saved = (prefs.pipeline ?? {}) as Partial<PipelineControls>;
-  const legacy = prefs.disable_processing === true;
+  const hasSavedControls = Boolean(prefs.pipeline && typeof prefs.pipeline === "object");
+  const legacy = !hasSavedControls && prefs.disable_processing === true;
   return {
     receive_emails: saved.receive_emails ?? true,
     filter_unwanted: saved.filter_unwanted ?? !legacy,

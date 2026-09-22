@@ -1,4 +1,5 @@
 "use client";
+import type { DashboardCounts } from "@/modules/dashboard/dashboard.types";
 import type { PipelineControls } from "@/common/pipeline-controls";
 
 import Link from "next/link";
@@ -6,7 +7,7 @@ import localFont from "next/font/local";
 import { DashboardBrand } from "./dashboard-brand";
 import styles from "./dashboard-shell.module.css";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
 import {
   AlertCircle,
@@ -37,6 +38,7 @@ import {
 
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
 import { MessageDetailDrawer } from "./message-detail-drawer";
+import { ConfirmModal } from "./confirm-modal";
 
 /* Tab components */
 import { OverviewTab } from "./tabs/overview-tab";
@@ -77,6 +79,7 @@ export type EmailMessage = {
   recipients?: Array<{ raw?: string }>;
   received_at: string | null;
   processing_status?: string;
+  delivery_status?: string;
   ai_category?: string;
   ai_importance?: number;
   ai_reason?: string;
@@ -91,6 +94,7 @@ export type EmailMessage = {
 };
 
 export type ProcessingJob = {
+  result?: { metadata?: { reason?: string } } | null;
   id: string;
   message_id: string;
   stage: string;
@@ -643,6 +647,7 @@ type DashboardShellProps = {
   messages?: EmailMessage[];
   processingJobs?: ProcessingJob[];
   userSettings?: UserSettings | null;
+  counts?: DashboardCounts;
   initialTab?: TabKey;
   aiResults?: Array<{
     message_id: string;
@@ -662,6 +667,7 @@ export function DashboardShell({
   processingJobs = [],
   userSettings = null,
   initialTab = "overview",
+  counts,
 }: DashboardShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -671,6 +677,7 @@ export function DashboardShell({
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [period, setPeriod] = useState("Last 7 days");
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [is_sign_out_modal_open, set_is_sign_out_modal_open] = useState(false);
   const [banner, setBanner] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const mobileNavRef = useRef<HTMLDivElement>(null);
@@ -751,36 +758,6 @@ export function DashboardShell({
     }
   }, [searchParams]);
 
-  // Silent background delta sync: automatically pulls newly arrived emails from Gmail API
-  const isBackgroundSyncingRef = useRef(false);
-
-  const triggerBackgroundSync = useCallback(async () => {
-    if (isBackgroundSyncingRef.current) return;
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-
-    isBackgroundSyncingRef.current = true;
-    try {
-      const res = await fetch("/api/accounts/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const hasNew = data?.results?.some(
-          (r: { synced?: number; today?: number }) => (r.synced ?? 0) > 0 || (r.today ?? 0) > 0
-        );
-        if (hasNew) {
-          router.refresh();
-        }
-      }
-    } catch (err) {
-      console.debug("Silent background sync non-fatal error:", err);
-    } finally {
-      isBackgroundSyncingRef.current = false;
-    }
-  }, [router]);
-
   // Supabase Realtime & Continuous Background Sync
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -809,20 +786,20 @@ export function DashboardShell({
       )
       .subscribe();
 
-    // 1. Initial background sync 1.5s after dashboard load
+    // Refresh stored dashboard data; Gmail ingestion is owned by the server worker.
     const initialTimer = setTimeout(() => {
-      void triggerBackgroundSync();
+      router.refresh();
     }, 1500);
 
-    // 2. Periodic background delta sync every 45 seconds when active
+    // Periodic read refresh every 120 seconds
+    // (Reduced from 45s to 120s to prevent bursty API traffic that triggers GCP abuse detection)
     const syncInterval = setInterval(() => {
-      void triggerBackgroundSync();
-    }, 45000);
+      router.refresh();
+    }, 120_000);
 
-    // 3. Sync immediately when user switches back to the tab
+    // Read fresh data when the browser returns to the foreground
     const handleVisibilityOrFocus = () => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
-        void triggerBackgroundSync();
         router.refresh();
       }
     };
@@ -837,11 +814,11 @@ export function DashboardShell({
       window.removeEventListener("focus", handleVisibilityOrFocus);
       void supabase.removeChannel(channel);
     };
-  }, [router, triggerBackgroundSync]);
+  }, [router]);
 
   // Connect Gmail Action Trigger
   function handleConnectGmail() {
-    window.location.href = "/api/auth/google/login";
+    window.location.href = "/api/auth/google";
   }
 
   // Time period filter handler
@@ -859,12 +836,12 @@ export function DashboardShell({
     return email.slice(0, 2).toUpperCase();
   }, [email]);
 
-  /* Sign out handler */
+  /* Sign out handler - redirects to landing page */
   async function signOut() {
     setIsSigningOut(true);
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
-    router.replace("/login");
+    router.replace("/");
     router.refresh();
   }
 
@@ -879,6 +856,7 @@ export function DashboardShell({
       case "overview":
         return (
           <OverviewTab
+            counts={counts}
             accounts={accounts}
             importantCount={importantCount}
             messages={messages}
@@ -904,6 +882,7 @@ export function DashboardShell({
       case "processing":
         return (
           <ProcessingTab
+            counts={counts}
             onUpdateUserSettings={(updates) => setCurrentUserSettings((previous) => ({ ...previous, ...updates }))}
             accounts={accounts}
             jobs={processingJobs}
@@ -1045,7 +1024,7 @@ export function DashboardShell({
               </div>
               <button
                 type="button"
-                onClick={signOut}
+                onClick={() => set_is_sign_out_modal_open(true)}
                 disabled={isSigningOut}
                 className="sidebar-signout-btn"
                 title="Sign out"
@@ -1073,7 +1052,7 @@ export function DashboardShell({
               </nav>
               <div className="sidebar-footer">
                 <div className="sidebar-legal"><Link href="/privacy" className="sidebar-legal-link">Privacy Policy</Link><span className="sidebar-legal-dot">·</span><Link href="/terms" className="sidebar-legal-link">Terms of Service</Link></div>
-                <div className="sidebar-user-row"><span className="sidebar-user-avatar">{initials}</span><div className="sidebar-user-info"><span className="sidebar-user-name">{email ? email.split("@")[0] : "User"}</span><span className="sidebar-user-email">{email}</span></div><button type="button" onClick={signOut} disabled={isSigningOut} className="sidebar-signout-btn" title="Sign out" aria-label="Sign out"><LogOut size={16} /></button></div>
+                <div className="sidebar-user-row"><span className="sidebar-user-avatar">{initials}</span><div className="sidebar-user-info"><span className="sidebar-user-name">{email ? email.split("@")[0] : "User"}</span><span className="sidebar-user-email">{email}</span></div><button type="button" onClick={() => set_is_sign_out_modal_open(true)} disabled={isSigningOut} className="sidebar-signout-btn" title="Sign out" aria-label="Sign out"><LogOut size={16} /></button></div>
               </div>
             </div>
           </div>
@@ -1161,6 +1140,20 @@ export function DashboardShell({
           onClose={() => setSelectedGlobalMessage(null)}
         />
       )}
+
+      {/* Sign Out Confirmation Modal */}
+      <ConfirmModal
+        isOpen={is_sign_out_modal_open}
+        title="Sign out of Strike?"
+        description="Are you sure you want to sign out? You will be returned to the landing page and will need to sign in again to access your email intelligence."
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        isDestructive={true}
+        isLoading={isSigningOut}
+        icon={<LogOut size={20} />}
+        onConfirm={signOut}
+        onClose={() => set_is_sign_out_modal_open(false)}
+      />
     </div>
   );
 }

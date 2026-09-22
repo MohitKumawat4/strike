@@ -11,7 +11,6 @@ import {
   LockKeyhole,
   Mail,
   RefreshCw,
-  Sparkles,
 } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
@@ -149,10 +148,15 @@ export function AuthForm({ mode, nextPath, initialError }: AuthFormProps) {
 
   return (
     <section className="auth-card" aria-labelledby="auth-heading">
-      <Link href="/" className="auth-mark" title="Strike Home" style={{ textDecoration: "none" }}>
-        <Sparkles size={19} />
-      </Link>
-      <p className="eyebrow">Strike intelligence</p>
+      <div className="auth-header-brand">
+        <Link href="/" className="auth-mark" title="Strike Home" aria-label="Strike home">
+          <svg width="18" height="22" viewBox="0 0 28 32" fill="none" aria-hidden="true">
+            <path d="M15 1H26L17.5 12H27L9 31L12 19H1L15 1Z" fill="currentColor" />
+          </svg>
+        </Link>
+        <span className="auth-brand-name">strike<span className="auth-brand-dot">.</span></span>
+      </div>
+      <p className="auth-eyebrow"><span className="auth-signal-dot" /> EMAIL INTELLIGENCE</p>
       <h1 id="auth-heading">{isLogin ? "Welcome back" : "Create your workspace"}</h1>
       <p className="auth-description">
         {isLogin

@@ -38,26 +38,16 @@ export async function saveUserSettings(
     let prefs = { ...existing, ...patch };
     if (patch.pipeline) {
       prefs = updatedPipelinePreferences(
-        existing,
+        { ...prefs, pipeline: existing.pipeline, disable_processing: existing.disable_processing },
         getPipelineControls({ pipeline: patch.pipeline }),
         new Date().toISOString(),
       );
-    } else if (
-      typeof patch.disable_processing === "boolean" &&
-      patch.disable_processing !== Boolean(existing.disable_processing)
-    ) {
-      const controls = getPipelineControls(existing);
-      prefs = updatedPipelinePreferences(
-        prefs,
-        {
-          ...controls,
-          use_ai: !patch.disable_processing,
-          send_whatsapp: !patch.disable_processing,
-          filter_unwanted: !patch.disable_processing,
-        },
-        new Date().toISOString(),
-      );
-      prefs.disable_processing = patch.disable_processing;
+    } else {
+      // Preserve existing pipeline controls and keep processing active when updating other preferences
+      if (existing.pipeline) {
+        prefs.pipeline = existing.pipeline;
+      }
+      prefs.disable_processing = false;
     }
     const result = await supabase
       .from("user_settings")
@@ -67,10 +57,26 @@ export async function saveUserSettings(
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", values.user_id)
-      .eq("notification_preferences", existing)
+      .eq("notification_preferences", JSON.stringify(existing))
       .select("user_id");
     if (result.error) return { error: result.error };
-    if (result.data?.length) return { error: null };
+    if (result.data?.length) return { error: null, preferences: prefs };
+
+    // Fallback: If JSON string comparison didn't match due to JSONB serialization, update directly by user_id
+    if (attempt >= 2) {
+      const fallbackResult = await supabase
+        .from("user_settings")
+        .update({
+          ...values,
+          notification_preferences: prefs,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", values.user_id)
+        .select("user_id");
+      if (!fallbackResult.error && fallbackResult.data?.length) {
+        return { error: null, preferences: prefs };
+      }
+    }
   }
   return {
     error: new Error("Settings changed in another session. Please save again."),

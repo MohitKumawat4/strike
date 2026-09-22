@@ -34,7 +34,8 @@ export async function createSupabaseServerClient() {
  */
 export function createSupabaseAdminClient() {
   const env = getServerEnv();
-  const adminKey = env.SUPABASE_SERVICE_ROLE_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const adminKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!adminKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for background processing.");
 
   return createClient(
     env.NEXT_PUBLIC_SUPABASE_URL,

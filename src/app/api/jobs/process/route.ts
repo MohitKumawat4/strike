@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/database/supabase/server";
+import { createSupabaseAdminClient, createSupabaseServerClient } from "@/database/supabase/server";
 import { runProcessingBatch } from "@/modules/processing/pipeline";
 
 /**
@@ -10,11 +10,20 @@ import { runProcessingBatch } from "@/modules/processing/pipeline";
  */
 export async function POST(req: NextRequest) {
   try {
+    const cronSecret = process.env.CRON_SECRET;
+    const isCron = Boolean(cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`);
+    let userId: string | undefined;
+    if (!isCron) {
+      const supabase = await createSupabaseServerClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      userId = user.id;
+    }
     const body = await req.json().catch(() => ({}));
-    const batchSize = typeof body.batchSize === "number" ? Math.min(25, body.batchSize) : 10;
+    const batchSize = Number.isInteger(body.batchSize) ? Math.max(1, Math.min(25, body.batchSize)) : 10;
 
     const supabaseAdmin = createSupabaseAdminClient();
-    const result = await runProcessingBatch(supabaseAdmin, batchSize);
+    const result = await runProcessingBatch(supabaseAdmin, batchSize, 1, userId);
 
     return NextResponse.json({
       status: "success",
@@ -31,5 +40,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   return POST(req);
 }

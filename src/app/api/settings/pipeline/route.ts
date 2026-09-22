@@ -1,6 +1,7 @@
+import { getPipelineControls } from "@/common/pipeline-controls";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSupabaseServerClient } from "@/database/supabase/server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "@/database/supabase/server";
 import { saveUserSettings } from "@/database/user-settings";
 const schema = z
   .object({
@@ -24,14 +25,34 @@ export async function PUT(request: Request) {
       { error: "Invalid pipeline controls." },
       { status: 400 },
     );
-  const { error } = await saveUserSettings(supabase, {
+  let { error, preferences } = await saveUserSettings(supabase, {
     user_id: user.id,
     notification_preferences: { pipeline: parsed.data },
   });
+  if (error) {
+    // Retry with admin client in case cookie session is refreshing
+    const admin = createSupabaseAdminClient();
+    const fallback = await saveUserSettings(admin, {
+      user_id: user.id,
+      notification_preferences: { pipeline: parsed.data },
+    });
+    if (!fallback.error) {
+      error = null;
+      preferences = fallback.preferences;
+    }
+  }
   if (error)
     return NextResponse.json(
       { error: "Could not save controls. Please try again." },
       { status: 500 },
     );
-  return NextResponse.json({ pipeline: parsed.data });
+  if (parsed.data.receive_emails) {
+    const { requestMailboxSync } = await import("@/modules/email/ingestion/coordinator");
+    const admin = createSupabaseAdminClient();
+    const { data: accounts, error: accountError } = await admin.from("email_accounts").select("id").eq("user_id", user.id).eq("connection_status", "connected");
+    if (!accountError) for (const account of accounts || []) {
+      try { await requestMailboxSync(admin, account.id); } catch { console.error("Controls saved but sync request could not be queued", account.id); }
+    }
+  }
+  return NextResponse.json({ pipeline: getPipelineControls(preferences) });
 }

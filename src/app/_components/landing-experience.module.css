@@ -34,9 +34,93 @@
 .login { font-size: 12px; }
 .navCta { display: inline-flex; align-items: center; gap: 25px; background: var(--forest); color: var(--paper) !important; border-radius: 5px; font-size: 12px; padding: 13px 17px; transition: background 0.2s, transform 0.2s; }
 .navCta:hover { background: #394932; transform: translateY(-2px); }
+
+.profilePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0f2eb;
+  border: 1px solid #dcded4;
+  border-radius: 9999px;
+  padding: 4px 13px 4px 5px;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+  cursor: pointer;
+}
+.profilePill:hover {
+  background: #e4ead9;
+  border-color: #c8d3bb;
+  transform: translateY(-1px);
+}
+.profileAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1e2821;
+  color: #d6f58a;
+  font-size: 11px;
+  font-weight: 750;
+  display: grid;
+  place-items: center;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.profileName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--forest);
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profileDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #86ab43;
+  box-shadow: 0 0 0 2px #86ab4325;
+  flex-shrink: 0;
+}
+
 .menuToggle { display: none; border: 0; padding: 8px; background: transparent; }
 .mobileNav { display: none; padding: 16px 24px 24px; background: var(--paper); border-bottom: 1px solid var(--rule); box-shadow: 0 20px 30px #1e28210f; }
 .mobileNav a { display: flex; padding: 15px 0; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--rule); }
+
+.mobileProfileRow {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 !important;
+  border-bottom: 1px solid var(--rule);
+  text-decoration: none;
+}
+.mobileProfileLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mobileProfileLeft strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--forest);
+}
+.mobileProfileLeft small {
+  display: block;
+  font-size: 11px;
+  color: var(--soft-ink);
+  margin-top: 1px;
+}
+.mobileDashboardLink {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 !important;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 600;
+  color: #435b2a !important;
+}
 .hero { position: relative; max-width: 1440px; margin: auto; display: grid; grid-template-columns: 1fr 1fr; padding: 71px 64px 0; }
 .heroCopy { position: relative; z-index: 2; padding-bottom: 52px; }
 .heroEyebrow, .eyebrow { display: inline-flex; align-items: center; gap: 9px; font-size: 9px; font-weight: 600; letter-spacing: 1.5px; line-height: 1.5; }
@@ -294,6 +378,7 @@
   .header { height: 73px; }
   .navInner { padding: 0 24px; }
   .desktopNav, .login { display: none; }
+  .profileName { max-width: 80px; }
   .navActions { gap: 12px; }
   .navCta { padding: 11px 13px; font-size: 10px; gap: 17px; }
   .menuToggle { display: grid; place-items: center; }
@@ -362,6 +447,8 @@
 }
 @media (max-width: 600px) {
   .navInner { padding: 0 20px; }
+  .profileName { display: none; }
+  .profilePill { padding: 4px 6px 4px 4px; }
   .hero { padding: 35px 24px 0; display: flex; flex-direction: column; }
   .heroCopy { padding-bottom: 0; }
   .heroEyebrow { font-size: 7px; letter-spacing: 1.05px; }

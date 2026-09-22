@@ -4,7 +4,6 @@ import {
   type ErrorSeverity,
   type LayerErrorRecord,
   type LogLayerErrorParams,
-  LAYER_TITLES,
 } from "./layer-logger.types";
 
 export * from "./layer-logger.types";
@@ -137,7 +136,7 @@ export async function fetchLayerErrors(
   let query = db.from("error_logs").select("*", { count: "exact" });
 
   if (userId) {
-    query = query.or(`user_id.eq.${userId},user_id.is.null`);
+    query = query.eq("user_id", userId);
   }
 
   if (layer && layer !== "all") {

@@ -1,5 +1,7 @@
 "use client";
 
+import type { DashboardCounts } from "@/modules/dashboard/dashboard.types";
+import { getPipelineControls } from "@/common/pipeline-controls";
 import { useMemo } from "react";
 import {
   ArrowUpRight,
@@ -26,6 +28,7 @@ import { InboxWorkspace } from "./inbox-workspace";
 import styles from "./overview-tab.module.css";
 
 type OverviewTabProps = {
+  counts?: DashboardCounts;
   accounts: ConnectedAccount[];
   receivedCount: number;
   importantCount?: number;
@@ -49,6 +52,7 @@ type OverviewTabProps = {
 
 export function OverviewTab({
   accounts,
+  counts,
   receivedCount,
   importantCount = 0,
   messages,
@@ -59,6 +63,7 @@ export function OverviewTab({
   userSettings,
   onSelectMessage,
 }: OverviewTabProps) {
+  const whatsappEnabled = getPipelineControls({pipeline:userSettings?.pipeline,disable_processing:userSettings?.disable_processing}).send_whatsapp;
   /* Dynamic metrics driven by real pipeline data */
   const metrics = useMemo(
     () => [
@@ -73,7 +78,7 @@ export function OverviewTab({
       },
       {
         label: "AI Triaged",
-        value: String(importantCount),
+        value: String(counts?.triaged ?? importantCount),
         badge: "Priority",
         detail: "Triaged by AI engine",
         icon: Sparkles,
@@ -82,7 +87,7 @@ export function OverviewTab({
       },
       {
         label: "WhatsApp Stream",
-        value: userSettings?.whatsapp_destination ? "Active" : "Not Linked",
+        value: !whatsappEnabled ? "Paused" : userSettings?.whatsapp_destination ? "Enabled" : "Not Linked",
         badge: userSettings?.whatsapp_destination ? "Meta API" : "Action",
         detail: userSettings?.whatsapp_destination
           ? userSettings.whatsapp_destination
@@ -93,15 +98,15 @@ export function OverviewTab({
       },
       {
         label: "Needs Attention",
-        value: "0",
-        badge: "Clean",
-        detail: "Zero failures or delays",
+        value: String((counts?.failed ?? 0) + (counts?.delivery_attention ?? 0)),
+        badge: "Stage status",
+        detail: "Failed, retrying or uncertain deliveries",
         icon: TriangleAlert,
         tone: "peach",
         trend: "Healthy",
       },
     ],
-    [receivedCount, importantCount, userSettings?.whatsapp_destination],
+    [receivedCount, importantCount, userSettings?.whatsapp_destination, counts, whatsappEnabled],
   );
 
   return (

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { createSupabaseServerClient } from "@/database/supabase/server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "@/database/supabase/server";
 import { exchangeCodeAndFetchProfile } from "@/modules/email/providers/gmail/gmail.client";
 import { encryptToken } from "@/common/crypto/encryption";
 import { GMAIL_READONLY_SCOPE } from "@/modules/email/providers/gmail/gmail.constants";
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Exchange authorization code for tokens and mailbox details
-    const { tokens, emailAddress, historyId } = await exchangeCodeAndFetchProfile(code);
+    const { tokens, emailAddress } = await exchangeCodeAndFetchProfile(code);
 
     if (!tokens.refresh_token) {
       dashboardUrl.searchParams.set("error", "Google did not provide a refresh token. Try disconnecting and reconnecting.");
@@ -70,9 +70,7 @@ export async function GET(request: NextRequest) {
           email_address: emailAddress,
           encrypted_refresh_token: encryptedRefreshToken,
           granted_scopes: grantedScopes,
-          history_id: historyId,
           connection_status: "connected",
-          last_successful_sync_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
         {
@@ -88,18 +86,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(dashboardUrl);
     }
 
-    // Trigger initial mailbox sync to ingest recent emails
-    try {
-      const { performInitialSync } = await import("@/modules/email/ingestion/initial-sync");
-      await performInitialSync(supabase, {
-        accountId: savedAccount.id,
-        userId: user.id,
-        encryptedRefreshToken,
-        maxMessages: 20,
-      });
-    } catch (syncErr) {
-      console.error("Initial sync non-fatal error:", syncErr);
-    }
+    // Reconnection preserves the last committed cursor. Ingestion owns advancement.
+    const { requestMailboxSync } = await import("@/modules/email/ingestion/coordinator");
+    await requestMailboxSync(createSupabaseAdminClient(), savedAccount.id);
 
     // Automatically set up Gmail Push Watch if Google Pub/Sub topic is configured
     const pubsubTopic = process.env.GOOGLE_PUBSUB_TOPIC;
@@ -110,13 +99,12 @@ export async function GET(request: NextRequest) {
         const oauth2Client = getGoogleOAuthClient();
         oauth2Client.setCredentials(tokens);
 
-        const { historyId: watchHistoryId, expiration } = await setupGmailWatch(oauth2Client, pubsubTopic);
+        const { expiration } = await setupGmailWatch(oauth2Client, pubsubTopic);
         const expirationDate = new Date(parseInt(expiration, 10)).toISOString();
 
         await supabase
           .from("email_accounts")
           .update({
-            history_id: watchHistoryId,
             watch_expiration: expirationDate,
             updated_at: new Date().toISOString(),
           })

@@ -1,5 +1,5 @@
 import { generateStructuredAiJson } from "../ai.client";
-import { decodeHtmlEntities } from "@/modules/email/ingestion/initial-sync";
+import { decodeHtmlEntities } from "@/modules/email/ingestion/email-content";
 
 export const TRIAGE_PROMPT_VERSION = "2026.09.single-pass";
 

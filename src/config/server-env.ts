@@ -16,6 +16,9 @@ const serverEnvSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1).optional(),
+  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().min(1).optional(),
+  META_APP_SECRET: z.string().min(1).optional(),
+  CRON_SECRET: z.string().min(1).optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -39,5 +42,8 @@ export function getServerEnv(): ServerEnv {
     WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN,
     WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID,
     WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN,
+    WHATSAPP_BUSINESS_ACCOUNT_ID: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
+    META_APP_SECRET: process.env.META_APP_SECRET,
+    CRON_SECRET: process.env.CRON_SECRET,
   });
 }

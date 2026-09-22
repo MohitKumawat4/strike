@@ -1,17 +1,15 @@
 "use client";
 
+import type { DashboardCounts } from "@/modules/dashboard/dashboard.types";
+import { getPipelineControls } from "@/common/pipeline-controls";
 import { PipelineControls } from "./pipeline-controls";
 import ui from "./modern-tabs.module.css";
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Activity,
-  ArrowRight,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   ExternalLink,
   Flame,
   Loader2,
@@ -19,7 +17,6 @@ import {
   Radio,
   RefreshCw,
   Search,
-  ShieldAlert,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -32,6 +29,7 @@ import { MessageDetailDrawer } from "../message-detail-drawer";
 import { decodeHtmlEntities } from "@/common/types/domain";
 
 type ProcessingTabProps = {
+  counts?: DashboardCounts;
   onUpdateUserSettings?: (settings: UserSettings) => void;
   jobs: ProcessingJob[];
   messages?: EmailMessage[];
@@ -43,6 +41,7 @@ type ActivityFilter = "all" | "whatsapp" | "important" | "filtered";
 
 export function ProcessingTab({
   onUpdateUserSettings,
+  counts,
   jobs = [],
   messages = [],
   accounts = [],
@@ -70,8 +69,10 @@ export function ProcessingTab({
     typeof userSettings?.importance_threshold === "string"
       ? parseFloat(userSettings.importance_threshold)
       : (userSettings?.importance_threshold ?? 0.7);
-  const totalReceived = messages.length;
-  const hasWhatsApp = Boolean(userSettings?.whatsapp_destination);
+  const totalReceived = counts?.received ?? messages.length;
+  const controls = getPipelineControls({ pipeline: userSettings?.pipeline, disable_processing: userSettings?.disable_processing });
+  const receiving = controls.receive_emails && accounts.some(account => account.connection_status === "connected");
+  const hasWhatsApp = controls.send_whatsapp && Boolean(userSettings?.whatsapp_destination);
 
   /* Derive live activity items with human-friendly outcomes */
   const activityItems = useMemo(() => {
@@ -87,6 +88,7 @@ export function ProcessingTab({
         type: ActivityFilter;
       };
 
+      const failedJob = jobs.find(job => job.message_id === m.id && (job.status === "failed" || job.status === "retrying"));
       if (m.processing_status === "DELIVERED") {
         outcome = {
           label: "📱 Sent to WhatsApp",
@@ -94,40 +96,51 @@ export function ProcessingTab({
           bg: "rgba(34, 197, 94, 0.12)",
           type: "whatsapp",
         };
+      } else if (m.delivery_status && m.delivery_status !== "pending") {
+        const deliveryLabels: Record<string, string> = {sending:"Sending to WhatsApp",accepted:"WhatsApp accepted; awaiting delivery receipt",failed:"WhatsApp delivery failed",unknown:"Delivery outcome unknown; review required",skipped:"WhatsApp skipped by saved preferences"};
+        outcome = {label:deliveryLabels[m.delivery_status] || m.delivery_status,color:"var(--muted)",bg:"var(--surface-muted)",type:"all"};
+      } else if (failedJob) {
+        outcome = { label: `${failedJob.stage}: ${failedJob.status}`, color: "#ef4444", bg: "var(--surface-muted)", type: "all" };
+      } else if (m.processing_status === "DELIVERY_PENDING" || m.processing_status === "DELIVERING") {
+        outcome = { label: m.processing_status === "DELIVERING" ? "Delivery awaiting confirmation" : "Waiting for WhatsApp messaging window", color: "var(--muted)", bg: "var(--surface-muted)", type: "all" };
+      } else if (m.processing_status === "DISCARDED") {
+        outcome = { label: "Filtered by email rules", color: "#d97706", bg: "var(--surface-muted)", type: "filtered" };
+      } else if (jobs.some(job => job.message_id === m.id && job.result?.metadata?.reason === "historical_ai_not_run")) {
+        outcome = {label:"Historical email · AI not run",color:"var(--muted)",bg:"var(--surface-muted)",type:"all"};
       } else if (isImportant) {
         outcome = {
-          label: hasWhatsApp ? "📱 Priority · WhatsApp configured" : "⚡ Priority email",
+          label: "⚡ Priority email",
           color: "var(--info)",
           bg: "var(--surface-muted)",
-          type: hasWhatsApp ? "whatsapp" : "important",
+          type: "important",
         };
       } else if (m.ai_category === "promotional") {
         outcome = {
-          label: "🏷️ Filtered (Promotions Bucket)",
+          label: "🏷️ Classified as promotional",
           color: "#d97706",
           bg: "rgba(217, 119, 6, 0.12)",
-          type: "filtered",
+          type: "all",
         };
       } else if (m.ai_category === "spam") {
         outcome = {
-          label: "🛡️ Filtered (Spam Suppressed)",
+          label: "🛡️ Classified as spam",
           color: "#ef4444",
           bg: "rgba(239, 68, 68, 0.12)",
-          type: "filtered",
+          type: "all",
         };
       } else if (m.processing_status === "RECEIVED" || m.processing_status === "pending") {
         outcome = {
-          label: "⏳ Queued for AI Triage",
+          label: "⏳ Awaiting processing",
           color: "var(--muted)",
           bg: "var(--surface-muted)",
           type: "all",
         };
       } else {
         outcome = {
-          label: "🗄️ Filtered (Normal Noise)",
+          label: `Saved · ${(m.processing_status || "received").toLowerCase().replaceAll("_", " ")}`,
           color: "var(--brand-plum)",
           bg: "var(--surface-pill)",
-          type: "filtered",
+          type: "all",
         };
       }
 
@@ -138,14 +151,14 @@ export function ProcessingTab({
         isImportant,
       };
     });
-  }, [messages, threshold, hasWhatsApp, accountMap]);
+  }, [messages, threshold, accountMap, jobs]);
 
   /* Synchronized Funnel & Badge Counts */
-  const triagedCount = messages.filter((message) => Boolean(message.ai_category)).length;
-  const importantCount = activityItems.filter((item) => item.isImportant).length;
-  const noiseCount = activityItems.filter((item) => item.outcome.type === "filtered").length;
-  const whatsappDeliveredCount = activityItems.filter(
-    (item) => item.outcome.type === "whatsapp" || (hasWhatsApp && item.isImportant)
+  const triagedCount = counts?.triaged ?? messages.filter((message) => Boolean(message.ai_category)).length;
+  const importantCount = counts?.important ?? activityItems.filter((item) => item.isImportant).length;
+  const noiseCount = counts?.filtered ?? activityItems.filter((item) => item.outcome.type === "filtered").length;
+  const whatsappDeliveredCount = counts?.delivered ?? activityItems.filter(
+    (item) => item.message.processing_status === "DELIVERED"
   ).length;
 
   const noiseReductionPercent =
@@ -157,7 +170,7 @@ export function ProcessingTab({
 
     if (activityFilter === "whatsapp") {
       result = result.filter(
-        (item) => item.outcome.type === "whatsapp" || (hasWhatsApp && item.isImportant)
+        (item) => item.message.processing_status === "DELIVERED"
       );
     } else if (activityFilter === "important") {
       result = result.filter((item) => item.isImportant);
@@ -175,7 +188,7 @@ export function ProcessingTab({
     }
 
     return result;
-  }, [activityItems, activityFilter, search, hasWhatsApp]);
+  }, [activityItems, activityFilter, search]);
 
   /* Pagination */
   const totalPages = Math.max(1, Math.ceil(filteredActivity.length / pageSize));
@@ -186,7 +199,7 @@ export function ProcessingTab({
 
   async function handleProcessJobs() {
     setIsProcessing(true);
-    setStatusMessage("Scanning mailboxes & running AI triage…");
+    setStatusMessage("Processing queued email stages…");
 
     try {
       const res = await fetch("/api/jobs/process", {
@@ -197,7 +210,7 @@ export function ProcessingTab({
       const data = await res.json();
 
       if (data.status === "success") {
-        setStatusMessage(`✓ Processed ${data.processed} emails (${data.succeeded} categorized)`);
+        setStatusMessage(`✓ Ran ${data.processed} stages (${data.succeeded} succeeded, ${data.failed} failed)`);
         router.refresh();
       } else {
         setStatusMessage(`Error: ${data.message || "Scan failed"}`);
@@ -238,10 +251,10 @@ export function ProcessingTab({
             ) : (
               <RefreshCw size={15} />
             )}
-            <span>{statusMessage || (isProcessing ? "Scanning…" : "Run On-Demand Scan")}</span>
+            <span>{statusMessage || (isProcessing ? "Scanning…" : "Process queued emails")}</span>
           </button>
           <span style={{ fontSize: "11px", color: "var(--muted)", fontStyle: "italic" }}>
-            Automated real-time push is active.
+            Saved controls govern email ingestion and processing.
           </span>
         </div>
       </div>
@@ -259,19 +272,19 @@ export function ProcessingTab({
         <div className="panel" style={{ padding: "14px 16px", margin: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "7px", fontSize: "12px", fontWeight: 700, color: "var(--muted)" }}>
-              <Radio size={14} style={{ color: accounts.length > 0 ? "#16a34a" : "var(--muted)" }} />
+              <Radio size={14} style={{ color: receiving ? "#16a34a" : "var(--muted)" }} />
               <span>GMAIL STREAM</span>
             </div>
             <span style={{
               width: "7px",
               height: "7px",
               borderRadius: "50%",
-              background: accounts.length > 0 ? "#16a34a" : "#d97706",
-              boxShadow: accounts.length > 0 ? "0 0 6px #16a34a" : "none",
+              background: receiving ? "#16a34a" : "#d97706",
+              boxShadow: receiving ? "0 0 6px #16a34a" : "none",
             }} />
           </div>
           <div style={{ fontSize: "14px", fontWeight: 750, color: "var(--ink)" }}>
-            {accounts.length > 0 ? "Active (Real-time)" : "No Account"}
+            {receiving ? "Enabled" : controls.receive_emails ? "No connected account" : "Paused"}
           </div>
           <div style={{ fontSize: "11.5px", color: "var(--muted)", marginTop: "2px" }}>
             {accounts.length} connected mailbox(es)
@@ -289,15 +302,15 @@ export function ProcessingTab({
               width: "7px",
               height: "7px",
               borderRadius: "50%",
-              background: "#16a34a",
-              boxShadow: "0 0 6px #16a34a",
+              background: controls.use_ai ? "#16a34a" : "var(--line)",
+              boxShadow: controls.use_ai ? "0 0 6px #16a34a" : "none",
             }} />
           </div>
           <div style={{ fontSize: "14px", fontWeight: 750, color: "var(--ink)" }}>
-            AI classification
+            {controls.use_ai ? "AI enabled" : "AI paused"}
           </div>
           <div style={{ fontSize: "11.5px", color: "var(--muted)", marginTop: "2px" }}>
-            Custom VIP & priority rules applied
+            {controls.use_ai ? "Custom VIP & priority rules applied" : "Basic email previews; no AI usage"}
           </div>
         </div>
 
@@ -317,10 +330,10 @@ export function ProcessingTab({
             }} />
           </div>
           <div style={{ fontSize: "14px", fontWeight: 750, color: "var(--ink)", fontFamily: hasWhatsApp ? "var(--font-mono, monospace)" : "inherit" }}>
-            {hasWhatsApp ? userSettings?.whatsapp_destination : "Not Configured"}
+            {hasWhatsApp ? userSettings?.whatsapp_destination : controls.send_whatsapp ? "Not configured" : "Paused"}
           </div>
           <div style={{ fontSize: "11.5px", color: "var(--muted)", marginTop: "2px" }}>
-            {hasWhatsApp ? "Instant alerts & 7:00 AM briefing" : "Configure in Settings tab"}
+            {hasWhatsApp ? "Delivery enabled; subject to messaging window" : controls.send_whatsapp ? "Configure in Settings tab" : "Emails remain in the dashboard"}
           </div>
         </div>
 
@@ -605,7 +618,7 @@ export function ProcessingTab({
 
             {/* Mobile Card View */}
             <div className="messages-mobile-card-list">
-              {paginatedActivity.map(({ message, sourceEmail, outcome }) => (
+              {paginatedActivity.map(({ message, outcome }) => (
                 <div
                   key={message.id}
                   className="messages-mobile-card clickable-row"

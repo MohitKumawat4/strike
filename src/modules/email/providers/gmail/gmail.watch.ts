@@ -1,8 +1,7 @@
-import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptToken } from "@/common/crypto/encryption";
-import { getGoogleOAuthClient } from "./gmail.client";
+import { getGoogleOAuthClient, createGmailGateway } from "./gmail.client";
 
 /**
  * Registers a Gmail inbox for push notifications via Google Cloud Pub/Sub.
@@ -14,16 +13,7 @@ export async function setupGmailWatch(
   oauth2Client: OAuth2Client,
   topicName: string
 ): Promise<{ historyId: string; expiration: string }> {
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-  const watchResponse = await gmail.users.watch({
-    userId: "me",
-    requestBody: {
-      topicName,
-      labelIds: ["INBOX"],
-      labelFilterBehavior: "INCLUDE",
-    },
-  });
+  const watchResponse = await createGmailGateway(oauth2Client).watch(topicName);
 
   const historyId = watchResponse.data.historyId;
   const expiration = watchResponse.data.expiration;
@@ -43,8 +33,7 @@ export async function setupGmailWatch(
  */
 export async function stopGmailWatch(oauth2Client: OAuth2Client): Promise<void> {
   try {
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-    await gmail.users.stop({ userId: "me" });
+    await createGmailGateway(oauth2Client).stop();
   } catch (err) {
     console.error("Error stopping Gmail watch:", err);
   }
@@ -81,14 +70,13 @@ export async function renewExpiringWatches(
       const oauth2Client = getGoogleOAuthClient();
       oauth2Client.setCredentials({ refresh_token: refreshToken });
 
-      const { historyId, expiration } = await setupGmailWatch(oauth2Client, topicName);
+      const { expiration } = await setupGmailWatch(oauth2Client, topicName);
 
       const expirationDate = new Date(parseInt(expiration, 10)).toISOString();
 
       await supabaseAdmin
         .from("email_accounts")
         .update({
-          history_id: historyId,
           watch_expiration: expirationDate,
           updated_at: new Date().toISOString(),
         })

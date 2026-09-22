@@ -1,7 +1,7 @@
 import { getPipelineControls } from "@/common/pipeline-controls";
 import { saveUserSettings } from "@/database/user-settings";
 import { createClient } from '@supabase/supabase-js';
-import { decodeHtmlEntities } from '@/modules/email/ingestion/initial-sync';
+import { decodeHtmlEntities } from '@/modules/email/ingestion/email-content';
 
 /**
  * WhatsApp Cloud Functions (2nd Gen) Client for Strike.
@@ -10,7 +10,8 @@ import { decodeHtmlEntities } from '@/modules/email/ingestion/initial-sync';
 
 function getSupabaseService() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required.');
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
@@ -47,38 +48,8 @@ export interface OutboundLogContext {
   extra?: Record<string, unknown>;
 }
 
-/**
- * Logs message delivery attempt to Supabase for auditability.
- */
-async function logDeliveryAttempt(
-  result: Record<string, unknown>,
-  recipientPhone: string,
-  logCtx?: OutboundLogContext
-): Promise<void> {
-  if (!logCtx) return;
-  try {
-    const supabaseService = getSupabaseService();
-    const metaResponse = (result?.meta_response as Record<string, unknown>) || {};
-    const messages = (metaResponse?.messages as Array<{ id: string }>) || [];
-    const waId = messages[0]?.id || `out_${Date.now()}`;
-
-    const emailMsgId = logCtx.extra?.message_id as string | undefined;
-    if (emailMsgId) {
-      await supabaseService.from('delivery_attempts').insert([
-        {
-          message_id: emailMsgId,
-          channel: 'whatsapp',
-          provider_message_id: waId,
-          idempotency_key: `wa_${emailMsgId}_${Date.now()}`,
-          status: 'sending',
-          attempt_no: 1,
-          sent_at: new Date().toISOString(),
-        },
-      ]);
-    }
-  } catch (err) {
-    console.error('Failed to log delivery attempt in Supabase:', err);
-  }
+export class WhatsAppHttpError extends Error {
+  constructor(public status: number, message: string) { super(message); }
 }
 
 /**
@@ -120,6 +91,7 @@ export async function sendWhatsAppMessage(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(25000),
   });
 
   if (!response.ok) {
@@ -133,14 +105,14 @@ export async function sendWhatsAppMessage(
       errorMessage: `WhatsApp Cloud Function failed (${response.status}): ${errorText}`,
       userId: logCtx?.user_id,
       messageId: logCtx?.extra?.message_id as string | undefined,
-      technicalDetails: { status: response.status, recipient: cleanPhone, payload },
+      technicalDetails: { operation: "send", status: response.status },
     });
-    throw new Error(`Cloud Function WhatsApp Send Error (${response.status}): ${errorText}`);
+    throw new WhatsAppHttpError(response.status, `WhatsApp request failed (${response.status})`);
   }
 
   const result = await response.json();
   if (logCtx) {
-    void logDeliveryAttempt(result, cleanPhone, logCtx);
+    // Email sends are durably recorded by the delivery outbox.
   }
 
   return result;
@@ -174,6 +146,7 @@ export async function sendWhatsAppTemplate(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(25000),
   });
 
   if (!response.ok) {
@@ -193,7 +166,7 @@ export async function sendWhatsAppTemplate(
 
   const result = await response.json();
   if (logCtx) {
-    void logDeliveryAttempt(result, cleanPhone, logCtx);
+    // Email sends are durably recorded by the delivery outbox.
   }
 
   return result;
@@ -298,22 +271,24 @@ export async function openWhatsApp24hWindow(
   inboundText?: string | null
 ): Promise<void> {
   try {
-    const { data: userSettings } = await supabase
+    const { data: userSettings, error: settingsError } = await supabase
       .from('user_settings')
       .select('id, notification_preferences')
       .eq('user_id', userId)
       .maybeSingle();
 
+    if (settingsError) throw settingsError;
     if (!userSettings) return;
 
     const existingPrefs = (userSettings.notification_preferences as Record<string, unknown>) || {};
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    await saveUserSettings(supabase, { user_id: userId, notification_preferences: {
+    const { error: saveError } = await saveUserSettings(supabase, { user_id: userId, notification_preferences: {
       last_inbound_at: now.toISOString(), window_status: 'OPEN', window_expires_at: expiresAt.toISOString(),
       last_inbound_text: inboundText || existingPrefs.last_inbound_text || null,
     }});
+    if (saveError) throw saveError;
 
     // Record system audit event
     await supabase.from('system_events').insert({
@@ -330,7 +305,7 @@ export async function openWhatsApp24hWindow(
       occurred_at: now.toISOString(),
     });
   } catch (err) {
-    console.error('Failed to update 24h window in user_settings:', err);
+    throw err;
   }
 }
 
@@ -343,14 +318,8 @@ export async function flushStackedEmailAlerts(
   // Only flush emails that actually reached delivery. Never generate AI work from a reply.
   const { data: settings, error: settingsError } = await supabase.from('user_settings').select('notification_preferences, whatsapp_destination').eq('user_id', userId).maybeSingle();
   if (settingsError || !getPipelineControls(settings?.notification_preferences).send_whatsapp || settings?.whatsapp_destination?.replace(/\D/g, '') !== recipientPhone.replace(/\D/g, '')) return { flushedCount: 0, messagesDelivered: [] };
-  const { data: candidates, error } = await supabase.from('email_messages').select('*').eq('user_id', userId).eq('processing_status', 'DELIVERY_PENDING')
-    .gte('received_at', new Date(Date.now() - 86400000).toISOString()).order('received_at', { ascending: true }).limit(10);
-  if (error) throw error;
-  const { executeDeliveryStage } = await import('@/modules/processing/stages');
-  const messagesDelivered: string[] = [];
-  for (const message of candidates || []) {
-    const result = await executeDeliveryStage(supabase, message);
-    if (result.messageStatus === 'DELIVERED') messagesDelivered.push(message.id);
-  }
-  return { flushedCount: messagesDelivered.length, messagesDelivered };
+  // Reply handling never sends inline; scheduled workers claim the durable outbox.
+  await supabase.from('delivery_outbox').update({status:'pending',error_code:null,error_message:null})
+    .eq('user_id',userId).eq('status','failed').eq('error_code','131047').throwOnError();
+  return { flushedCount: 0, messagesDelivered: [] };
 }

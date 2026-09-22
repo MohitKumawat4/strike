@@ -6,3 +6,5 @@ export type DashboardMetrics = {
   failed: number;
   delayed: number;
 };
+
+export type DashboardCounts = { received: number; triaged: number; important: number; delivered: number; filtered: number; failed: number; delivery_attention: number };

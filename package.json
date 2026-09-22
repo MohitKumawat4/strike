@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx src/tests/e2e-subsystems.test.ts",
-    "test:pipeline": "node src/tests/pipeline-controls.test.cjs"
+    "test": "npx -y tsx src/tests/e2e-subsystems.test.ts",
+    "test:pipeline": "node src/tests/pipeline-controls.test.cjs",
+    "test:database": "node src/tests/durable-database.test.cjs",
+    "db:migrate": "node scripts/migrate.cjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
@@ -30,6 +32,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",

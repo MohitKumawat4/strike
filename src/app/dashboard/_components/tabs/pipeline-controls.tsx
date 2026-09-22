@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Inbox, ShieldCheck, Sparkles, MessageSquare } from "lucide-react";
 import {
@@ -17,13 +17,12 @@ export function PipelineControls({
   userSettings?: UserSettings | null;
   onSave?: (settings: UserSettings) => void;
 }) {
-  const initial = getPipelineControls({
+  const initial = useMemo(() => getPipelineControls({
     pipeline: userSettings?.pipeline,
     disable_processing: userSettings?.disable_processing,
-  });
+  }), [userSettings?.pipeline, userSettings?.disable_processing]);
   return (
     <ControlsForm
-      key={JSON.stringify(initial)}
       initial={initial}
       userSettings={userSettings}
       onSave={onSave}
@@ -40,10 +39,16 @@ function ControlsForm({
   onSave?: (settings: UserSettings) => void;
 }) {
   const router = useRouter();
-  const [controls, setControls] = useState(initial);
+  const [serverValue, setServerValue] = useState(initial);
+  const [draft, setDraft] = useState<Controls | null>(null);
   const [saved, setSaved] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  if (JSON.stringify(serverValue) !== JSON.stringify(initial)) {
+    setServerValue(initial);
+    setSaved(initial);
+  }
+  const controls = draft ?? saved;
   const changed = JSON.stringify(controls) !== JSON.stringify(saved);
   async function save() {
     setSaving(true);
@@ -57,11 +62,13 @@ function ControlsForm({
       const data = await response.json();
       if (!response.ok)
         throw new Error(data.error || "Could not save controls.");
-      setSaved(controls);
+      setDraft(null);
+      setSaved(data.pipeline);
+      setServerValue(data.pipeline);
       setStatus("Changes saved.");
       onSave?.({
         ...userSettings,
-        pipeline: controls,
+        pipeline: data.pipeline,
         disable_processing: false,
       });
       router.refresh();
@@ -133,7 +140,7 @@ function ControlsForm({
                   aria-label={item.title}
                   checked={controls[item.key]}
                   onChange={(event) => {
-                    setControls({
+                    setDraft({
                       ...controls,
                       [item.key]: event.target.checked,
                     });

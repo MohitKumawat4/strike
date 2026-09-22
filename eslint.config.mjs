@@ -5,6 +5,15 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    plugins: {
+      "react-hooks": nextVitals[0]?.plugins?.["react-hooks"],
+    },
+    rules: {
+      // Demote set-state-in-effect to warning to allow standard client hydration & data-fetching patterns
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

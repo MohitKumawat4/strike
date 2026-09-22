@@ -116,6 +116,7 @@ export default function LandingExperience() {
   const [nav_percentage, set_nav_percentage] = useState(0);
 
   const [signedIn, setSignedIn] = useState(false);
+  const [user_email, set_user_email] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -133,9 +134,17 @@ export default function LandingExperience() {
     let active = true;
     const client = createSupabaseBrowserClient();
     const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
-      if (active) setSignedIn(Boolean(session?.user));
+      if (active) {
+        setSignedIn(Boolean(session?.user));
+        set_user_email(session?.user?.email ?? null);
+      }
     });
-    void client.auth.getUser().then(({ data }) => { if (active) setSignedIn(Boolean(data.user)); }).catch(() => {});
+    void client.auth.getUser().then(({ data }) => {
+      if (active) {
+        setSignedIn(Boolean(data.user));
+        set_user_email(data.user?.email ?? null);
+      }
+    }).catch(() => {});
     return () => { active = false; subscription.unsubscribe(); };
   }, []);
 
@@ -152,8 +161,14 @@ export default function LandingExperience() {
   }, [menuOpen]);
 
   const destination = signedIn ? "/dashboard" : "/signup";
-  const actionLabel = signedIn ? "Open dashboard" : "Get started";
+  const actionLabel = signedIn ? "Dashboard" : "Get started";
   const workspace_destination = signedIn ? "/dashboard" : "/login";
+
+  // Compute initials and display handle for authenticated user profile pill
+  const user_initials = user_email
+    ? user_email.slice(0, 2).toUpperCase()
+    : "U";
+  const user_display_name = user_email ? user_email.split("@")[0] : "Account";
 
   // Prevent repeated clicks and show instantaneous loading feedback during route rendering
   function handle_navigation(target_href: string, e?: React.MouseEvent) {
@@ -209,8 +224,8 @@ export default function LandingExperience() {
       </div>
     )}
 
-    <header className={s.header}><div className={s.navInner}><Brand /><nav className={s.desktopNav} aria-label="Main navigation"><a href="#product">The product</a><a href="#how-it-works">How it works</a><a href="#privacy">Built on trust</a></nav><div className={s.navActions}><a href={workspace_destination} onClick={(e) => handle_navigation(workspace_destination, e)} className={`${s.login} ${is_workspace_loading ? s.buttonLoading : ""}`} aria-busy={is_workspace_loading} aria-disabled={Boolean(nav_target)}>{is_workspace_loading ? <span className={s.inlineLoading}><Loader2 size={12} className={s.spinIcon} /><span>{signedIn ? "Opening…" : "Logging in…"}</span></span> : (signedIn ? "Your workspace" : "Log in")}</a><a className={`${s.navCta} ${is_destination_loading ? s.buttonLoading : ""}`} href={destination} onClick={(e) => handle_navigation(destination, e)} aria-busy={is_destination_loading} aria-disabled={Boolean(nav_target)}>{is_destination_loading ? <><span>{signedIn ? "Opening dashboard…" : "Loading…"}</span><Loader2 size={15} className={s.spinIcon} /></> : <>{actionLabel}<ArrowUpRight size={15} /></>}</a><button className={s.menuToggle} type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div></div>
-      {menuOpen && <nav id="mobile-navigation" className={s.mobileNav} aria-label="Mobile navigation"><a href="#product" onClick={() => setMenuOpen(false)}>The product<ArrowUpRight size={18} /></a><a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works<ArrowUpRight size={18} /></a><a href="#privacy" onClick={() => setMenuOpen(false)}>Built on trust<ArrowUpRight size={18} /></a><a href={workspace_destination} onClick={(e) => { setMenuOpen(false); handle_navigation(workspace_destination, e); }} className={is_workspace_loading ? s.buttonLoading : ""} aria-busy={is_workspace_loading} aria-disabled={Boolean(nav_target)}>{is_workspace_loading ? <><span className={s.inlineLoading}><Loader2 size={14} className={s.spinIcon} /><span>{signedIn ? "Opening workspace…" : "Logging in…"}</span></span><Loader2 size={18} className={s.spinIcon} /></> : <>{signedIn ? "Your workspace" : "Log in"}<ArrowUpRight size={18} /></>}</a></nav>}
+    <header className={s.header}><div className={s.navInner}><Brand /><nav className={s.desktopNav} aria-label="Main navigation"><a href="#product">The product</a><a href="#how-it-works">How it works</a><a href="#privacy">Built on trust</a></nav><div className={s.navActions}>{signedIn ? (<><a href="/dashboard" onClick={(e) => handle_navigation("/dashboard", e)} className={`${s.profilePill} ${nav_target === "/dashboard" ? s.buttonLoading : ""}`} title={`Signed in as ${user_email || "User"}`} aria-label="Open your workspace"><span className={s.profileAvatar}>{user_initials}</span><span className={s.profileName}>{user_display_name}</span><span className={s.profileDot} title="Online" /></a><a className={`${s.navCta} ${is_destination_loading ? s.buttonLoading : ""}`} href="/dashboard" onClick={(e) => handle_navigation("/dashboard", e)} aria-busy={is_destination_loading} aria-disabled={Boolean(nav_target)}>{is_destination_loading ? <><span>Opening dashboard…</span><Loader2 size={15} className={s.spinIcon} /></> : <><span>Dashboard</span><ArrowUpRight size={15} /></>}</a></>) : (<><a href="/login" onClick={(e) => handle_navigation("/login", e)} className={`${s.login} ${nav_target === "/login" ? s.buttonLoading : ""}`} aria-busy={nav_target === "/login"} aria-disabled={Boolean(nav_target)}>{nav_target === "/login" ? <span className={s.inlineLoading}><Loader2 size={12} className={s.spinIcon} /><span>Logging in…</span></span> : "Log in"}</a><a className={`${s.navCta} ${nav_target === "/signup" ? s.buttonLoading : ""}`} href="/signup" onClick={(e) => handle_navigation("/signup", e)} aria-busy={nav_target === "/signup"} aria-disabled={Boolean(nav_target)}>{nav_target === "/signup" ? <><span>Loading…</span><Loader2 size={15} className={s.spinIcon} /></> : <><span>Get started</span><ArrowUpRight size={15} /></>}</a></>)}<button className={s.menuToggle} type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div></div>
+      {menuOpen && <nav id="mobile-navigation" className={s.mobileNav} aria-label="Mobile navigation"><a href="#product" onClick={() => setMenuOpen(false)}>The product<ArrowUpRight size={18} /></a><a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works<ArrowUpRight size={18} /></a><a href="#privacy" onClick={() => setMenuOpen(false)}>Built on trust<ArrowUpRight size={18} /></a>{signedIn ? (<><a href="/dashboard" onClick={(e) => { setMenuOpen(false); handle_navigation("/dashboard", e); }} className={s.mobileProfileRow}><div className={s.mobileProfileLeft}><span className={s.profileAvatar}>{user_initials}</span><div><strong>{user_display_name}</strong><small>{user_email || "Signed in"}</small></div></div><ArrowUpRight size={18} /></a><a href="/dashboard" onClick={(e) => { setMenuOpen(false); handle_navigation("/dashboard", e); }} className={s.mobileDashboardLink}><span>Open Dashboard</span><ArrowUpRight size={18} /></a></>) : (<a href="/login" onClick={(e) => { setMenuOpen(false); handle_navigation("/login", e); }}>Log in<ArrowUpRight size={18} /></a>)}</nav>}
     </header>
 
     <main id="main">

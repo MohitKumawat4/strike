@@ -25,7 +25,7 @@ async function handleDataRetentionCleanup(req: NextRequest) {
     // Optional CRON_SECRET security check
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = req.headers.get("authorization");
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json(
         { status: "unauthorized", message: "Invalid or missing CRON_SECRET authorization." },
         { status: 401 }

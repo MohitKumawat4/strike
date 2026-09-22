@@ -26,7 +26,7 @@ async function handleDailyBriefing(req: NextRequest) {
     // Optional CRON_SECRET security check
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = req.headers.get("authorization");
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json(
         { status: "unauthorized", message: "Invalid or missing CRON_SECRET authorization." },
         { status: 401 }
@@ -94,10 +94,11 @@ async function handleDailyBriefing(req: NextRequest) {
         });
 
         // Update user_settings with timestamp
-        await saveUserSettings(supabaseAdmin, { user_id: recipient.user_id, notification_preferences: {
+        const { error: saveError } = await saveUserSettings(supabaseAdmin, { user_id: recipient.user_id, notification_preferences: {
           last_template_sent_at: new Date().toISOString(), window_status: "CLOSING_SOON",
         }});
 
+        if (saveError) throw saveError;
         dispatchedCount += 1;
       } catch (dispatchErr) {
         const errMsg = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
