@@ -12,10 +12,6 @@
     {
       "path": "/api/cron/cleanup",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/worker",
-      "schedule": "* * * * *"
     }
   ]
 }

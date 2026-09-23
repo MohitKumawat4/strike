@@ -1,6 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/database/supabase/server";
-import { requestMailboxSync } from "@/modules/email/ingestion/coordinator";
+import { requestMailboxSync, runMailboxSyncPage } from "@/modules/email/ingestion/coordinator";
+import { runProcessingBatch } from "@/modules/processing/pipeline";
+import { runDeliveryOutbox } from "@/modules/whatsapp/outbox";
+
 export async function POST(request: Request) {
     try {
         const db = await createSupabaseServerClient();
@@ -19,9 +22,25 @@ export async function POST(request: Request) {
         const admin = createSupabaseAdminClient();
         for (const account of accounts)
             await requestMailboxSync(admin, account.id);
+
+        // Run immediate background sync, processing, and delivery without delaying the UI response
+        after(async () => {
+            try {
+                // Ingest latest messages from Gmail
+                await runMailboxSyncPage(admin, user.id);
+                // Run AI classification/triage batch
+                await runProcessingBatch(admin, 5, 1, user.id);
+                // Send any pending WhatsApp messages
+                await runDeliveryOutbox(admin, user.id);
+            } catch (err) {
+                console.error("Manual sync background execution error:", err);
+            }
+        });
+
         return NextResponse.json({ success: true, message: `Sync queued for ${accounts.length} mailbox(es). Progress will appear as messages are imported.` }, { status: 202 });
     }
     catch {
         return NextResponse.json({ error: "Could not queue mailbox sync." }, { status: 503 });
     }
 }
+
