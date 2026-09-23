@@ -57,6 +57,7 @@ interface WhatsAppWebhookPayload {
           timestamp: string;
           type: string;
           text?: { body: string };
+          button?: { payload: string; text: string };
           interactive?: {
             type: string;
             button_reply?: { id: string; title: string };
@@ -162,14 +163,73 @@ export async function POST(request: NextRequest) {
           const matchedSetting = matchedSettings.length === 1 ? matchedSettings[0] : null;
           const userId = matchedSetting?.user_id;
 
-          // 2. Open / Refresh 24-Hour Messaging Window & Flush Stacked Emails
+          // 2. Open / Refresh 24-Hour Messaging Window, Send Activation Briefing & Flush Stacked Emails
           if (userId) {
-            const inboundText = msg.text?.body || msg.interactive?.button_reply?.title || null;
-            const { openWhatsApp24hWindow, flushStackedEmailAlerts } =
+            const buttonPayload = msg.button?.payload || msg.interactive?.button_reply?.id || null;
+            const inboundText = msg.text?.body || msg.button?.text || msg.interactive?.button_reply?.title || null;
+            const { openWhatsApp24hWindow, flushStackedEmailAlerts, sendWhatsAppMessage } =
               await import('@/modules/whatsapp');
+            const { runDeliveryOutbox } = await import('@/modules/whatsapp/outbox');
 
-            // Re-open window in database and system audit log
+            // Re-open 24-hour messaging window in database and system audit log
             await openWhatsApp24hWindow(supabaseAdmin, userId, fromPhone, inboundText);
+
+            // Detect if this is an activation button tap or greeting re-engagement
+            const isActivationOrBriefing =
+              buttonPayload === 'ACTIVATE_STREAM' ||
+              buttonPayload === 'START_DAY' ||
+              buttonPayload === 'VIEW_INBOX' ||
+              buttonPayload === 'test_ack' ||
+              /^(hi|hello|hey|start|activate|stream|briefing|inbox)/i.test((inboundText || '').trim());
+
+            if (isActivationOrBriefing) {
+              try {
+                // Fetch emails received in the last 24 hours for this user
+                const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                const { data: recentEmails } = await supabaseAdmin
+                  .from('email_messages')
+                  .select('id, subject, snippet, received_at, sender')
+                  .eq('user_id', userId)
+                  .gte('received_at', since)
+                  .order('received_at', { ascending: false })
+                  .limit(5);
+
+                const lines: string[] = [
+                  '⚡ *Strike Stream Activated!*',
+                  'Your 24-hour live messaging window is now open.',
+                  '',
+                ];
+
+                if (recentEmails && recentEmails.length > 0) {
+                  lines.push(`📬 *Priority Briefing (${recentEmails.length} message(s) in last 24h):*`);
+                  lines.push('');
+                  for (const [idx, em] of recentEmails.entries()) {
+                    const senderRaw = typeof em.sender === 'object' && em.sender?.raw ? em.sender.raw : String(em.sender || 'Unknown');
+                    const snippet = em.snippet || '(No preview available)';
+                    lines.push(`*${idx + 1}. ${em.subject || '(No Subject)'}*`);
+                    lines.push(`👤 *From:* ${senderRaw}`);
+                    lines.push(`📝 ${snippet.slice(0, 160)}${snippet.length > 160 ? '...' : ''}`);
+                    lines.push('');
+                  }
+                } else {
+                  lines.push('✨ You are all caught up! No urgent emails arrived in the last 24 hours.');
+                  lines.push('Strike will alert you instantly when a new important email arrives.');
+                  lines.push('');
+                }
+
+                lines.push('🚀 _Strike Email Intelligence_');
+
+                // Deliver activation briefing directly in WhatsApp
+                await sendWhatsAppMessage(
+                  fromPhone,
+                  'text',
+                  { body: lines.join('\n') },
+                  { user_id: userId }
+                );
+              } catch (briefingErr) {
+                console.error('Error sending activation briefing via WhatsApp:', briefingErr);
+              }
+            }
 
             // Handle Interactive Button Replies (e.g. "Mark Read", "Archive", "Open Strike")
             if (msg.type === 'interactive' && msg.interactive?.button_reply) {
@@ -236,7 +296,7 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Flush stacked email alerts from last 24 hours
+            // Flush stacked email alerts from last 24 hours and trigger outbox send
             const destinationPhone = matchedSetting.whatsapp_destination || fromPhone;
             const flushResult = await flushStackedEmailAlerts(
               supabaseAdmin,
@@ -248,6 +308,8 @@ export async function POST(request: NextRequest) {
               `🚀 Flushed ${flushResult.flushedCount} stacked email alert(s) for user ${userId}`
             );
 
+            // Immediately drain outbox now that window is active
+            await runDeliveryOutbox(supabaseAdmin, userId);
           }
 
           // Optional: Store inbound message in whatsapp_messages if table exists
