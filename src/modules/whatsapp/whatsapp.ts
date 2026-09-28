@@ -364,7 +364,7 @@ export async function checkAndRenew24hWindows(db: SupabaseClient): Promise<{ pro
       } catch (err) {
         console.error(`Failed to send 24h renewal template to ${user.user_id}:`, err);
       }
-    } else if (expiresAt <= now && prefs.window_status !== 'CLOSED') {
+    } else if (expiresAt <= now) {
       // It has fully expired, mark as closed
       await db.from('user_settings').update({
         notification_preferences: {
