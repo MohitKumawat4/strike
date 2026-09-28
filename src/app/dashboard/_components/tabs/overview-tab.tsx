@@ -1,6 +1,6 @@
 "use client";
 
-import type { DashboardCounts } from "@/modules/dashboard/dashboard.types";
+import type { DashboardCounts } from "@/common/types/domain";
 import { getPipelineControls } from "@/common/pipeline-controls";
 import { useMemo } from "react";
 import {

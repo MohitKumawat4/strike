@@ -1,5 +1,6 @@
+/* ══════ The Dashboard Shell feature starts here ══════ */
 "use client";
-import type { DashboardCounts } from "@/modules/dashboard/dashboard.types";
+import type { DashboardCounts } from "@/common/types/domain";
 import type { PipelineControls } from "@/common/pipeline-controls";
 
 import Link from "next/link";
@@ -7,7 +8,7 @@ import localFont from "next/font/local";
 import { DashboardBrand } from "./dashboard-brand";
 import styles from "./dashboard-shell.module.css";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/app/theme-provider";
 import {
   AlertCircle,
@@ -39,6 +40,7 @@ import {
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
 import { MessageDetailDrawer } from "./message-detail-drawer";
 import { ConfirmModal } from "./confirm-modal";
+import { isFeatureEnabled, type DashboardFeatureId } from "@/modules/dashboard/feature-registry";
 
 /* Tab components */
 import { OverviewTab } from "./tabs/overview-tab";
@@ -127,15 +129,24 @@ export type UserSettings = {
 type TabKey = "overview" | "messages" | "accounts" | "processing" | "analytics" | "templates" | "settings" | "error_logs";
 
 /* Sidebar navigation definition — used on desktop sidebar and mobile hamburger drawer */
-const NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boolean }[] = [
+const ALL_NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boolean }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
   { key: "messages", label: "Messages", icon: Inbox, count: true },
   { key: "accounts", label: "Accounts", icon: Mail },
   { key: "processing", label: "Processing", icon: ShieldCheck },
   { key: "analytics", label: "Analytics", icon: BarChart2 },
   { key: "templates", label: "Templates", icon: FileText },
+  { key: "error_logs", label: "Error Logs", icon: ShieldAlert },
   { key: "settings", label: "Settings", icon: Settings2 },
 ];
+
+const NAV_ITEMS = ALL_NAV_ITEMS.filter((item) => {
+  // If the nav item is registered as a toggleable feature, check its status
+  if (["overview", "processing", "error_logs"].includes(item.key)) {
+    return isFeatureEnabled(item.key as DashboardFeatureId);
+  }
+  return true;
+});
 
 /* ——————————————————————————————————————————————
  * Global Search Modal / Command Palette Component
@@ -758,6 +769,31 @@ export function DashboardShell({
     }
   }, [searchParams]);
 
+  // Silent background delta sync: automatically pulls newly arrived emails from Gmail API
+  const isBackgroundSyncingRef = useRef(false);
+
+  const triggerBackgroundSync = useCallback(async () => {
+    if (isBackgroundSyncingRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
+    isBackgroundSyncingRef.current = true;
+    try {
+      const res = await fetch("/api/accounts/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        // Just trigger a router refresh to show the new data after successful sync
+        router.refresh();
+      }
+    } catch (err) {
+      console.debug("Silent background sync non-fatal error:", err);
+    } finally {
+      isBackgroundSyncingRef.current = false;
+    }
+  }, [router]);
+
   // Supabase Realtime & Continuous Background Sync
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -786,20 +822,22 @@ export function DashboardShell({
       )
       .subscribe();
 
-    // Refresh stored dashboard data; Gmail ingestion is owned by the server worker.
+    // 1. Initial background sync 1.5s after dashboard load
     const initialTimer = setTimeout(() => {
+      void triggerBackgroundSync();
       router.refresh();
     }, 1500);
 
-    // Periodic read refresh every 120 seconds
-    // (Reduced from 45s to 120s to prevent bursty API traffic that triggers GCP abuse detection)
+    // 2. Periodic background delta sync every 120 seconds
     const syncInterval = setInterval(() => {
+      void triggerBackgroundSync();
       router.refresh();
     }, 120_000);
 
-    // Read fresh data when the browser returns to the foreground
+    // 3. Read fresh data when the browser returns to the foreground
     const handleVisibilityOrFocus = () => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void triggerBackgroundSync();
         router.refresh();
       }
     };
@@ -814,7 +852,7 @@ export function DashboardShell({
       window.removeEventListener("focus", handleVisibilityOrFocus);
       void supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [router, triggerBackgroundSync]);
 
   // Connect Gmail Action Trigger
   function handleConnectGmail() {
@@ -852,6 +890,18 @@ export function DashboardShell({
 
   /* Render the active tab content */
   function renderTabContent() {
+    // Phase 4: "Comment this feature" standard
+    if (["overview", "processing", "error_logs"].includes(activeTab)) {
+      if (!isFeatureEnabled(activeTab as DashboardFeatureId)) {
+        return (
+          <div style={{ padding: "40px", textAlign: "center", color: "var(--muted)" }}>
+            <h2>Feature Disabled</h2>
+            <p>This module has been disabled in the feature registry.</p>
+          </div>
+        );
+      }
+    }
+
     switch (activeTab) {
       case "overview":
         return (
@@ -983,7 +1033,6 @@ export function DashboardShell({
         <aside className={`dashboard-sidebar ${styles.sidebarSurface}`}>
           <div className={styles.sidebarIntro}>
             <DashboardBrand />
-            <div className={styles.workspaceIdentity}><span>{initials}</span><div><strong>Your workspace</strong><small>Personal email intelligence</small></div></div>
           </div>
           <p className={styles.navLabel}>YOUR DAILY SPACE</p>
           <nav aria-label="Dashboard navigation" className="sidebar-nav">
@@ -1011,11 +1060,7 @@ export function DashboardShell({
           {/* Sidebar Footer with Legal & User Profile */}
           <div className={styles.sidebarConnection}><Mail size={16} /><div><strong>{accounts.length} connected mailbox{accounts.length !== 1 ? "es" : ""}</strong><small>Your inbox, in the loop.</small></div><span /></div>
           <div className="sidebar-footer">
-            <div className="sidebar-legal">
-              <Link href="/privacy" className="sidebar-legal-link">Privacy</Link>
-              <span className="sidebar-legal-dot">•</span>
-              <Link href="/terms" className="sidebar-legal-link">Terms</Link>
-            </div>
+            
             <div className="sidebar-user-row">
               <span className="sidebar-user-avatar">{initials}</span>
               <div className="sidebar-user-info">
@@ -1041,7 +1086,6 @@ export function DashboardShell({
           <div className="mobile-nav-overlay" onClick={() => setIsMobileNavOpen(false)}>
             <div id="dashboard-mobile-navigation" ref={mobileNavRef} role="dialog" aria-modal="true" aria-label="Dashboard navigation" className={`mobile-nav-drawer ${styles.sidebarSurface}`} onClick={(e) => e.stopPropagation()}>
               <div className={styles.mobileDrawerHeading}><DashboardBrand /><button type="button" onClick={() => setIsMobileNavOpen(false)} className="icon-button" aria-label="Close drawer"><X size={20} /></button></div>
-              <div className={styles.workspaceIdentity}><span>{initials}</span><div><strong>Your workspace</strong><small>Personal email intelligence</small></div></div>
               <p className={styles.navLabel}>YOUR DAILY SPACE</p>
               <nav className="sidebar-nav" aria-label="Mobile dashboard navigation">
                 {NAV_ITEMS.map((item) => {
@@ -1051,7 +1095,6 @@ export function DashboardShell({
                 })}
               </nav>
               <div className="sidebar-footer">
-                <div className="sidebar-legal"><Link href="/privacy" className="sidebar-legal-link">Privacy Policy</Link><span className="sidebar-legal-dot">·</span><Link href="/terms" className="sidebar-legal-link">Terms of Service</Link></div>
                 <div className="sidebar-user-row"><span className="sidebar-user-avatar">{initials}</span><div className="sidebar-user-info"><span className="sidebar-user-name">{email ? email.split("@")[0] : "User"}</span><span className="sidebar-user-email">{email}</span></div><button type="button" onClick={() => set_is_sign_out_modal_open(true)} disabled={isSigningOut} className="sidebar-signout-btn" title="Sign out" aria-label="Sign out"><LogOut size={16} /></button></div>
               </div>
             </div>
@@ -1146,8 +1189,8 @@ export function DashboardShell({
         isOpen={is_sign_out_modal_open}
         title="Sign out of Strike?"
         description="Are you sure you want to sign out? You will be returned to the landing page and will need to sign in again to access your email intelligence."
-        confirmLabel="Sign out"
-        cancelLabel="Stay signed in"
+        confirmLabel="Yes"
+        cancelLabel="No"
         isDestructive={true}
         isLoading={isSigningOut}
         icon={<LogOut size={20} />}
@@ -1157,3 +1200,4 @@ export function DashboardShell({
     </div>
   );
 }
+/* ══════ The Dashboard Shell feature ends here ══════ */

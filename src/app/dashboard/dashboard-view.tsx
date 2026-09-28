@@ -17,7 +17,7 @@ export default async function DashboardView({ initialTab }: {
         redirect("/login");
     const [accountsResult, messagesResult, settingsResult, countsResult] = await Promise.all([
         db.from("email_accounts").select("id,provider,email_address,connection_status,last_successful_sync_at,created_at,granted_scopes,history_id").order("created_at", { ascending: false }),
-        db.from("email_messages").select("id,account_id,provider_message_id,thread_id,subject,snippet,sender,body_text,body_html,received_at,processing_status,ai_results(message_id,category,importance,confidence,reason),summaries(summary_text,extracted_items),delivery_outbox(status,error_code),processing_jobs(id,message_id,status,stage,attempts,started_at,completed_at,result)").order("received_at", { ascending: false }).limit(1000),
+        db.from("email_messages").select("id,account_id,provider_message_id,thread_id,subject,snippet,sender,body_text,body_html,received_at,processing_status,ai_results(message_id,category,importance,confidence,reason),summaries(summary_text,extracted_items),delivery_outbox(status,error_code),processing_jobs(id,message_id,status,stage,attempts,started_at,completed_at,result)").order("received_at", { ascending: false }).limit(100),
         db.from("user_settings").select("importance_threshold,raw_body_retention_days,notification_preferences,whatsapp_destination,custom_priority_rules").eq("user_id", user.id).maybeSingle(),
         db.rpc("strike_dashboard_counts"),
     ]);
@@ -25,7 +25,7 @@ export default async function DashboardView({ initialTab }: {
         console.error("Dashboard accounts load error:", accountsResult.error);
     }
     if (messagesResult.error) {
-        console.error("Dashboard messages load error:", messagesResult.error);
+        console.error("Dashboard messages load error:", messagesResult.error, JSON.stringify(messagesResult.error, null, 2));
     }
     const s = settingsResult.data;
     const prefs = (s?.notification_preferences || {}) as Record<string, unknown>;

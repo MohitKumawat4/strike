@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPipelineControls, afterResume } from "@/common/pipeline-controls";
 import { sendStrikeEmailAlert, type StrikeEmailAlertParams, WhatsAppHttpError } from "./whatsapp";
+import { logLayerError } from "@/common/logging/layer-logger";
+
 export function providerMessageId(result: unknown): string | null {
     const r = result as {
         messages?: {
@@ -53,6 +55,20 @@ export async function runDeliveryOutbox(db: SupabaseClient, userId?: string) {
         const rejected = error instanceof WhatsAppHttpError && error.status >= 400 && error.status < 500;
         const paused = message === "WHATSAPP_PAUSED";
         await db.from("delivery_outbox").update({ status: paused ? "skipped" : !attempted ? "pending" : rejected ? "failed" : "unknown", error_code: paused ? "WHATSAPP_PAUSED" : rejected ? "PROVIDER_REJECTED" : "SEND_OUTCOME_UNKNOWN", error_message: message, ...(provider ? { provider_message_id: provider } : {}), lease_owner: null, lease_expires_at: null }).eq("id", item.id).eq("lease_owner", owner).throwOnError();
+        
+        // Ensure failed WhatsApp deliveries are actually logged to the dedicated error logs page
+        if (rejected || (!paused && attempted)) {
+            await logLayerError({
+                layer: "delivery",
+                severity: "error",
+                userId: item.user_id,
+                messageId: item.message_id,
+                errorCode: "WHATSAPP_DELIVERY_FAILED",
+                errorMessage: message,
+                supabaseClient: db
+            });
+        }
+        
         return { processed: 1, error: message };
     }
 }

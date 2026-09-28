@@ -107,6 +107,7 @@ export function SettingsTab({
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [is_sign_out_modal_open, set_is_sign_out_modal_open] = useState(false);
+  const [is_disconnect_wa_modal_open, set_is_disconnect_wa_modal_open] = useState(false);
 
   /* Parse existing phone into country code and local number */
   const initialPhone = parseInitialPhone(userSettings?.whatsapp_destination);
@@ -996,7 +997,7 @@ export function SettingsTab({
 
             <button
               type="button"
-              onClick={handleDisconnectWhatsApp}
+              onClick={() => set_is_disconnect_wa_modal_open(true)}
               disabled={isDisconnecting}
               className="secondary-button danger-button"
               style={{
@@ -1337,13 +1338,30 @@ export function SettingsTab({
         isOpen={is_sign_out_modal_open}
         title="Sign out of Strike?"
         description="Are you sure you want to sign out? You will be returned to the landing page and will need to sign in again to access your workspace."
-        confirmLabel="Sign out"
-        cancelLabel="Stay signed in"
+        confirmLabel="Yes"
+        cancelLabel="No"
         isDestructive={true}
         isLoading={isSigningOut}
         icon={<LogOut size={20} />}
         onConfirm={handleSignOut}
         onClose={() => set_is_sign_out_modal_open(false)}
+      />
+
+      {/* Disconnect WhatsApp Confirmation Modal */}
+      <ConfirmModal
+        isOpen={is_disconnect_wa_modal_open}
+        title="Disconnect WhatsApp?"
+        description="Are you sure you want to disconnect this WhatsApp number? Automated AI email triage and priority briefs will stop being delivered to your phone."
+        confirmLabel="Yes"
+        cancelLabel="No"
+        isDestructive={true}
+        isLoading={isDisconnecting}
+        icon={<Trash2 size={20} />}
+        onConfirm={async () => {
+          await handleDisconnectWhatsApp();
+          set_is_disconnect_wa_modal_open(false);
+        }}
+        onClose={() => set_is_disconnect_wa_modal_open(false)}
       />
     </div>
   );

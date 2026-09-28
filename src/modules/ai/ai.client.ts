@@ -1,3 +1,4 @@
+/* ══════ The AI Client starts here ══════ */
 import { getServerEnv } from "@/config/server-env";
 
 export type AiGenerateJsonParams = {
@@ -260,3 +261,4 @@ export async function generateStructuredAiJson<T>(
 
   throw new Error("No configured AI provider succeeded. Ensure GEMINI_API_KEY or OPENAI_API_KEY is valid.");
 }
+/* ══════ The AI Client ends here ══════ */

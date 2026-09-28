@@ -26,6 +26,10 @@ import {
   Terminal,
   X,
   Zap,
+  Lock,
+  IndianRupee,
+  DollarSign,
+  Activity,
 } from "lucide-react";
 
 import {
@@ -111,6 +115,21 @@ export function ErrorLogsTab() {
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulatedStatus, setSimulatedStatus] = useState<string | null>(null);
 
+  /* Phase 4: Admin PIN Gate (4002) */
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState("");
+
+  /* Phase 3: AI Metrics Telemetry */
+  const [aiMetrics, setAiMetrics] = useState<{
+    totalInvokes: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCostUsd: number;
+    totalCostInr: number;
+    breakdown: Record<string, { invokes: number; costUsd: number; costInr: number }>;
+  } | null>(null);
+
   async function loadLogs(showSpinner = true) {
     if (showSpinner) setIsLoading(true);
     else setIsRefreshing(true);
@@ -141,8 +160,26 @@ export function ErrorLogsTab() {
   }
 
   useEffect(() => {
-    loadLogs(true);
-  }, [selectedLayer, selectedSeverity, timeRange, sortOrder, currentPage, pageSize]);
+    if (isAuthenticated) {
+      loadLogs(true);
+    }
+  }, [selectedLayer, selectedSeverity, timeRange, sortOrder, currentPage, pageSize, isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Fetch AI metrics
+      fetch("/api/admin/ai-metrics", {
+        headers: { authorization: "Bearer 4002" },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            setAiMetrics(data.metrics);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [isAuthenticated]);
 
   // Debounced search
   useEffect(() => {
@@ -253,6 +290,61 @@ export function ErrorLogsTab() {
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  if (!isAuthenticated) {
+    return (
+      <div className={ui.page} style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "500px" }}>
+        <div className="panel" style={{ padding: "40px", maxWidth: "400px", width: "100%", textAlign: "center" }}>
+          <div style={{ width: "48px", height: "48px", borderRadius: "24px", background: "rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px" }}>
+            <Lock size={24} style={{ color: "var(--ink)" }} />
+          </div>
+          <h2 style={{ fontSize: "20px", fontWeight: 750, marginBottom: "8px", color: "var(--ink)" }}>Admin Access Required</h2>
+          <p style={{ fontSize: "14px", color: "var(--muted)", marginBottom: "32px", lineHeight: 1.5 }}>
+            Please enter the 4-digit administrative PIN to access system telemetry and error logs.
+          </p>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (pin === "4002") {
+              setIsAuthenticated(true);
+              setPinError("");
+            } else {
+              setPinError("Invalid administrative PIN.");
+              setPin("");
+            }
+          }}>
+            <input
+              type="password"
+              maxLength={4}
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\\D/g, ""))}
+              placeholder="••••"
+              style={{
+                width: "100%",
+                padding: "16px",
+                fontSize: "24px",
+                letterSpacing: "12px",
+                textAlign: "center",
+                borderRadius: "12px",
+                border: pinError ? "2px solid #ef4444" : "1px solid var(--line)",
+                background: "var(--surface)",
+                marginBottom: "16px",
+                outline: "none"
+              }}
+              autoFocus
+            />
+            {pinError && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: 600, marginBottom: "16px" }}>{pinError}</div>}
+            <button
+              type="submit"
+              className="primary-button"
+              style={{ width: "100%", height: "48px", fontSize: "15px", fontWeight: 650, background: "#000", color: "#fff", border: "none", borderRadius: "12px", cursor: "pointer" }}
+            >
+              Verify Access
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={ui.page}>
@@ -372,6 +464,99 @@ export function ErrorLogsTab() {
           </div>
         </div>
       </div>
+
+      {/* AI Telemetry Glassmorphic Cards (Phase 3) */}
+      <div className="dashboard-title-row" style={{ marginTop: "24px", marginBottom: "16px" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+            <span className="eyebrow" style={{ color: "#3b82f6", fontWeight: 700 }}>
+              FINANCIAL TELEMETRY
+            </span>
+          </div>
+          <h2 style={{ fontSize: "18px", fontWeight: 750 }}>AI Token & Cost Usage</h2>
+        </div>
+      </div>
+      
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "12px",
+          marginBottom: "32px",
+        }}
+      >
+        <div className="panel" style={{ padding: "16px", margin: 0, background: "linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.4) 100%)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+            <span style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--ink)", opacity: 0.7 }}>TOTAL AI INVOKES</span>
+            <Activity size={18} style={{ color: "#3b82f6" }} />
+          </div>
+          <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--ink)" }}>
+            {aiMetrics ? aiMetrics.totalInvokes.toLocaleString() : "..."}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px", fontWeight: 500 }}>
+            Across all pipeline runs
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: "16px", margin: 0, background: "linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.4) 100%)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+            <span style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--ink)", opacity: 0.7 }}>TOKEN VOLUME</span>
+            <Sparkles size={18} style={{ color: "#8b5cf6" }} />
+          </div>
+          <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--ink)" }}>
+            {aiMetrics ? ((aiMetrics.totalInputTokens + aiMetrics.totalOutputTokens) / 1000).toFixed(1) + "k" : "..."}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px", fontWeight: 500 }}>
+            {aiMetrics ? `${(aiMetrics.totalInputTokens / 1000).toFixed(1)}k In / ${(aiMetrics.totalOutputTokens / 1000).toFixed(1)}k Out` : "Loading..."}
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: "16px", margin: 0, background: "linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.4) 100%)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+            <span style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--ink)", opacity: 0.7 }}>TOTAL COST (USD)</span>
+            <DollarSign size={18} style={{ color: "#10b981" }} />
+          </div>
+          <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--ink)" }}>
+            ${aiMetrics ? aiMetrics.totalCostUsd.toFixed(4) : "..."}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px", fontWeight: 500 }}>
+            Based on current model rates
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: "16px", margin: 0, background: "linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.4) 100%)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+            <span style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--ink)", opacity: 0.7 }}>TOTAL COST (INR)</span>
+            <IndianRupee size={18} style={{ color: "#f59e0b" }} />
+          </div>
+          <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--ink)" }}>
+            ₹{aiMetrics ? aiMetrics.totalCostInr.toFixed(2) : "..."}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px", fontWeight: 500 }}>
+            Converted at ₹87 / USD
+          </div>
+        </div>
+      </div>
+
+      {/* AI Telemetry Breakdown */}
+      {aiMetrics && Object.keys(aiMetrics.breakdown).length > 0 && (
+        <div className="panel" style={{ padding: "16px", marginBottom: "32px", border: "1px solid var(--line)", background: "var(--surface)", borderRadius: "12px" }}>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)", marginBottom: "12px", textTransform: "uppercase" }}>
+            Telemetry Breakdown by Model & Task
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "12px" }}>
+            {Object.entries(aiMetrics.breakdown).map(([key, data]) => (
+              <div key={key} style={{ padding: "12px", background: "rgba(0,0,0,0.02)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)" }}>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)", marginBottom: "4px" }}>{key}</div>
+                <div style={{ fontSize: "12px", color: "var(--muted)", display: "flex", justifyContent: "space-between" }}>
+                  <span>{data.invokes} invokes</span>
+                  <span style={{ fontWeight: 600, color: "#10b981" }}>${data.costUsd.toFixed(4)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Layer Navigation Tabs */}
       <div className="panel" style={{ padding: "12px 16px", marginBottom: "16px", margin: "0 0 16px 0" }}>

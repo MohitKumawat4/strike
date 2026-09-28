@@ -108,3 +108,21 @@ export function cleanSummaryText(summary?: string | null): string {
   cleaned = cleaned.replace(/^(Executive\s+summary|Summary|Key\s+takeaways?|Brief):\s*/i, "");
   return cleaned;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Dashboard domain types (consolidated from modules/dashboard/)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Aggregate counts used by Overview, Processing, and other dashboard tabs.
+ * Relocated from the now-pruned src/modules/dashboard/dashboard.types.ts.
+ */
+export type DashboardCounts = {
+  received: number;
+  triaged: number;
+  important: number;
+  delivered: number;
+  filtered: number;
+  failed: number;
+  delivery_attention: number;
+};

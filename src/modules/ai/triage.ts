@@ -1,4 +1,5 @@
-import { generateStructuredAiJson } from "../ai.client";
+/* ══════ The Triage feature starts here ══════ */
+import { generateStructuredAiJson } from "./ai.client";
 import { decodeHtmlEntities } from "@/modules/email/ingestion/email-content";
 
 export const TRIAGE_PROMPT_VERSION = "2026.09.single-pass";
@@ -152,7 +153,7 @@ export async function triageEmailWithAi(
     const extractedItems = (Array.isArray(aiResponse.data.extracted_items)
       ? aiResponse.data.extracted_items
       : []
-    ).map((item) => ({
+    ).map((item: { action?: string; deadline?: string; assignee?: string }) => ({
       action: decodeHtmlEntities(item.action || ""),
       deadline: item.deadline ? decodeHtmlEntities(item.deadline) : "None",
       assignee: item.assignee ? decodeHtmlEntities(item.assignee) : "You",
@@ -243,3 +244,4 @@ export async function triageEmailWithAi(
     };
   }
 }
+/* ══════ The Triage feature ends here ══════ */

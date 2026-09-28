@@ -1,4 +1,5 @@
-import { generateStructuredAiJson } from "../ai.client";
+/* ══════ The AI Summary feature starts here ══════ */
+import { generateStructuredAiJson } from "./ai.client";
 import { decodeHtmlEntities, convertHtmlToCleanText } from "@/modules/email/ingestion/email-content";
 
 export type ExtractedActionItem = {
@@ -88,7 +89,7 @@ ${cleanContent.slice(0, 4000)}`;
     const extractedItems = (Array.isArray(aiResponse.data.extracted_items)
       ? aiResponse.data.extracted_items
       : []
-    ).map((item) => ({
+    ).map((item: { action?: string; deadline?: string; assignee?: string }) => ({
       action: decodeHtmlEntities(item.action || ""),
       deadline: item.deadline ? decodeHtmlEntities(item.deadline) : "None",
       assignee: item.assignee ? decodeHtmlEntities(item.assignee) : "You",
@@ -127,3 +128,4 @@ ${cleanContent.slice(0, 4000)}`;
     };
   }
 }
+/* ══════ The AI Summary feature ends here ══════ */

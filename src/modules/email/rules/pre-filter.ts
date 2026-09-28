@@ -35,9 +35,15 @@ export function preFilterEmail(input: {
     }
   }
 
-  // 3. Unsubscribe / promotional pattern heuristics
+  // 3. Unsubscribe / promotional pattern heuristics in subject
   if (/unsubscribe|view in browser/i.test(input.subject)) {
     return { shouldTriage: false, reason: "promotional_subject_pattern" };
+  }
+
+  // 4. Automated / No-reply sender heuristics
+  if (input.sender && /(no-reply|noreply|donotreply|system|alerts|updates|notifications)@/i.test(input.sender)) {
+    // Exceptions for specific important alerts could go here
+    return { shouldTriage: false, reason: "automated_sender_pattern" };
   }
 
   return { shouldTriage: true, reason: "requires_triage" };

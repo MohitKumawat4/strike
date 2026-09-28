@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import LandingExperience from "./_components/landing-experience";
+import LandingCoordinator from "./_components/landing-coordinator";
 
 const geist = localFont({
   src: "./_fonts/geist-latin.woff2",
@@ -19,5 +19,5 @@ export const metadata: Metadata = {
 };
 
 export default function LandingPage() {
-  return <div className={geist.variable}><LandingExperience /></div>;
+  return <div className={geist.variable}><LandingCoordinator /></div>;
 }

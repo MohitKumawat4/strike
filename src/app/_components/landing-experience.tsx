@@ -1,3 +1,4 @@
+/* ══════ The Landing Experience feature starts here ══════ */
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
@@ -257,4 +258,5 @@ export default function LandingExperience() {
     <footer className={s.footer}><div className={s.footerTop}><Brand /><p>Intelligence for your inbox.<br />Space for everything else.</p><a href="#main" className={s.backTop}>Back to top<ArrowUpRight size={17} /></a></div><div className={s.footerBottom}><span>© {new Date().getFullYear()} Strike</span><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="mailto:mohitkumawatwork@gmail.com">Contact</a><button type="button" aria-pressed={paused} onClick={() => setPaused(!paused)}><span className={paused ? s.motionOff : s.motionOn} />{paused ? "Motion paused" : "Pause motion"}</button></div><span>LESS, BUT BETTER.</span></div></footer>
   </div></MotionConfig>;
 }
+/* ══════ The Landing Experience feature ends here ══════ */
 

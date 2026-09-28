@@ -94,8 +94,14 @@ export async function runMailboxSyncPage(db: SupabaseClient, userId?: string) {
         const messages = [];
         let missing = 0;
         // Small pages bound request runtime. A failed page is replayed without changing its cursor.
-        const fetched = await Promise.all(ids.map(id => gmail.getMessage(id)));
-        for (const { data: m } of fetched) {
+        const fetched = await Promise.allSettled(ids.map(id => gmail.getMessage(id)));
+        for (const result of fetched) {
+            if (result.status === "rejected") {
+                missing++;
+                console.error("Individual email fetch failed:", result.reason);
+                continue;
+            }
+            const { data: m } = result.value;
             if (!m?.id) {
                 missing++;
                 continue;

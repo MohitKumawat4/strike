@@ -31,8 +31,8 @@ process.env.GOOGLE_OAUTH_REDIRECT_URI = process.env.GOOGLE_OAUTH_REDIRECT_URI ||
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 import { encryptToken, decryptToken } from "../common/crypto/encryption";
-import { triageEmailWithAi } from "../modules/ai/prompts/triage";
-import { summarizeEmailWithAi } from "../modules/ai/prompts/summary";
+import { triageEmailWithAi } from "../modules/ai/triage";
+import { summarizeEmailWithAi } from "../modules/ai/summary";
 import { preFilterEmail } from "../modules/email/rules/pre-filter";
 
 let totalTests = 0;

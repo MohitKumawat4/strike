@@ -1,27 +1,21 @@
+import Link from "next/link";
 import localFont from "next/font/local";
 import { DashboardBrand } from "./_components/dashboard-brand";
 import styles from "./_components/dashboard-shell.module.css";
-import overviewStyles from "./_components/tabs/overview-tab.module.css";
-import inboxStyles from "./_components/tabs/inbox-workspace.module.css";
 import {
   AlertCircle,
   BarChart2,
   Bell,
-  CalendarDays,
-  ChevronDown,
   FileText,
   Flame,
   Inbox,
   LayoutDashboard,
+  LogOut,
   Mail,
   Menu,
-  Plus,
   Search,
   Settings2,
-  Sparkles,
   Sun,
-  TriangleAlert,
-  Zap,
 } from "lucide-react";
 
 const dashboardFont = localFont({
@@ -31,30 +25,221 @@ const dashboardFont = localFont({
 });
 
 /**
- * Dashboard Loading Skeleton
+ * Strike Kinetic Brand Loader
  *
- * Faithfully mirrors the active dashboard's geometry, sidebar, layout, and olive/forest theme.
- * Rendered by Next.js App Router while parallel database queries complete.
+ * A high-craftsmanship brand loader derived strictly from the Strike lightning geometry.
+ * Features:
+ *  - Spatial float and tilt motion (the loader has momentum and weight, not a static fixed shape)
+ *  - Slower, stateful, readable line progression across each facet of the lightning bolt
+ *  - Subtle, translucent breathing illumination (never a harsh or abrupt fill)
+ */
+function StrikeBrandLoader() {
+  return (
+    <div className="strike-loader-stage" aria-hidden="true">
+      {/* Soft ambient atmospheric glow that gently breathes */}
+      <div className="strike-ambient-glow" />
+
+      {/* Kinetic Strike Brand Logo SVG */}
+      <svg
+        className="strike-brand-scene"
+        width="64"
+        height="74"
+        viewBox="0 0 28 32"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          {/* Subtle translucent gradient for the soft inner breath (never solid or harsh) */}
+          <linearGradient id="strikeSubtleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="var(--lime, #d6f58a)" stopOpacity="0.8" />
+            <stop offset="100%" stopColor="var(--brand-plum, #506b38)" stopOpacity="0.4" />
+          </linearGradient>
+
+          {/* Liquid luminous stroke gradient for the slow, readable line progression */}
+          <linearGradient id="strikeFlowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+            <stop offset="35%" stopColor="var(--lime, #d6f58a)" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="var(--brand-plum, #506b38)" stopOpacity="0.4" />
+          </linearGradient>
+        </defs>
+
+        {/* Faint blueprint silhouette track */}
+        <path
+          d="M15 1H26L17.5 12H27L9 31L12 19H1L15 1Z"
+          fill="none"
+          stroke="var(--line, rgba(214, 245, 138, 0.2))"
+          strokeWidth="1.25"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity="0.25"
+        />
+
+        {/* Translucent ambient breathing fill: smoothly rises to ~0.25 opacity, never harsh */}
+        <path
+          className="strike-bolt-breath-fill"
+          d="M15 1H26L17.5 12H27L9 31L12 19H1L15 1Z"
+          fill="url(#strikeSubtleGrad)"
+        />
+
+        {/* Slower, stateful, readable traveling stroke */}
+        <path
+          className="strike-bolt-stateful-stroke"
+          d="M15 1H26L17.5 12H27L9 31L12 19H1L15 1Z"
+          fill="none"
+          stroke="url(#strikeFlowGrad)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * Dashboard Loading Shell
+ *
+ * Keeps only the persistent top navbar and sidebar, which load instantly without
+ * database dependencies. The main canvas features a floating, kinetic Strike brand
+ * animation that provides a calm, elegant, and hypnotic loading experience.
  */
 export default function DashboardLoading() {
   return (
     <div
       className={`dashboard-app ${styles.shell} ${dashboardFont.variable}`}
+      role="status"
+      aria-live="polite"
       aria-busy="true"
       aria-label="Loading dashboard"
     >
       <style>{`
-        @keyframes skShimmer {
-          0%, 100% { opacity: 0.45; }
-          50% { opacity: 0.85; }
+        /* Continuous spatial floating and subtle perspective tilt */
+        @keyframes strikeFloatAndTilt {
+          0% {
+            transform: translateY(0px) rotate(0deg);
+          }
+          25% {
+            transform: translateY(-8px) rotate(-4.5deg);
+          }
+          50% {
+            transform: translateY(2px) rotate(2deg);
+          }
+          75% {
+            transform: translateY(-6px) rotate(5deg);
+          }
+          100% {
+            transform: translateY(0px) rotate(0deg);
+          }
         }
-        .sk-pulse {
-          animation: skShimmer 1.8s ease-in-out infinite;
-          background: var(--surface-muted);
+
+        /* Slower, stateful, readable line progression around the lightning bolt */
+        @keyframes strikeStrokeStateful {
+          0% {
+            stroke-dasharray: 4 110;
+            stroke-dashoffset: 0;
+            opacity: 0.25;
+          }
+          18% {
+            stroke-dasharray: 38 110;
+            stroke-dashoffset: -10;
+            opacity: 0.95;
+          }
+          45% {
+            stroke-dasharray: 55 110;
+            stroke-dashoffset: -38;
+            opacity: 1;
+          }
+          60% {
+            stroke-dasharray: 68 110;
+            stroke-dashoffset: -52;
+            opacity: 1;
+          }
+          78% {
+            stroke-dasharray: 86 110;
+            stroke-dashoffset: -76;
+            opacity: 0.9;
+          }
+          88% {
+            stroke-dasharray: 107 110;
+            stroke-dashoffset: -96;
+            opacity: 0.8;
+          }
+          100% {
+            stroke-dasharray: 4 110;
+            stroke-dashoffset: -107;
+            opacity: 0.25;
+          }
+        }
+
+        /* Subtle, translucent breathing fill (gentle rise and fall, never a solid or abrupt pop) */
+        @keyframes strikeSubtleBreath {
+          0%, 35% {
+            opacity: 0.02;
+          }
+          62% {
+            opacity: 0.16;
+          }
+          82% {
+            opacity: 0.25;
+            filter: drop-shadow(0 0 10px rgba(214, 245, 138, 0.3));
+          }
+          94% {
+            opacity: 0.12;
+            filter: drop-shadow(0 0 4px rgba(214, 245, 138, 0.1));
+          }
+          100% {
+            opacity: 0.02;
+          }
+        }
+
+        /* Ambient atmospheric background breathing */
+        @keyframes strikeAmbientPulse {
+          0%, 100% {
+            transform: scale(0.9);
+            opacity: 0.35;
+          }
+          50% {
+            transform: scale(1.15);
+            opacity: 0.65;
+          }
+        }
+
+        .strike-loader-stage {
+          position: relative;
+          width: 120px;
+          height: 120px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          animation: strikeFloatAndTilt 5.6s ease-in-out infinite;
+        }
+
+        .strike-ambient-glow {
+          position: absolute;
+          width: 130px;
+          height: 130px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(214, 245, 138, 0.18) 0%, rgba(80, 107, 56, 0.06) 50%, transparent 72%);
+          animation: strikeAmbientPulse 3.8s ease-in-out infinite;
+          pointer-events: none;
+        }
+
+        .strike-brand-scene {
+          position: relative;
+          z-index: 2;
+          overflow: visible;
+        }
+
+        .strike-bolt-stateful-stroke {
+          animation: strikeStrokeStateful 3.8s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+        }
+
+        .strike-bolt-breath-fill {
+          animation: strikeSubtleBreath 3.8s ease-in-out infinite;
         }
       `}</style>
 
-      {/* Top Header - Fixed & offset by desktop sidebar */}
+      {/* Persistent Top Header / Navbar */}
       <header className="dashboard-header">
         <div className="header-left">
           <div className="mobile-nav-toggle" aria-hidden="true">
@@ -89,23 +274,24 @@ export default function DashboardLoading() {
             <span className="notification-dot" />
           </div>
           <span
-            className="header-avatar sk-pulse"
-            style={{ width: "31px", height: "31px", borderRadius: "50%", display: "inline-block" }}
-          />
+            className="header-avatar"
+            style={{ width: "31px", height: "31px", borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--avatar-surface, #e6ebd8)", color: "var(--avatar-ink, #576d40)", fontSize: "11px", fontWeight: 600 }}
+          >
+            ST
+          </span>
         </div>
       </header>
 
-      {/* Dashboard Body with Fixed Sidebar & Main Content */}
+      {/* Dashboard Body with Fixed Sidebar & Main Content Canvas */}
       <div className="dashboard-body">
-        {/* Desktop Fixed Dark Forest Sidebar */}
+        {/* Persistent Desktop Sidebar Navigation */}
         <aside className={`dashboard-sidebar ${styles.sidebarSurface}`}>
           <div className={styles.sidebarIntro}>
             <DashboardBrand />
             <div className={styles.workspaceIdentity}>
-              <span
-                className="sk-pulse"
-                style={{ width: "28px", height: "28px", borderRadius: "5px", display: "inline-block" }}
-              />
+              <span style={{ display: "grid", placeItems: "center", width: "28px", height: "28px", borderRadius: "5px", background: "var(--surface-pill, #e1ebce)", color: "var(--brand-plum, #506b38)", fontSize: "11px", fontWeight: 700 }}>
+                ST
+              </span>
               <div>
                 <strong>Your workspace</strong>
                 <small>Personal email intelligence</small>
@@ -115,7 +301,7 @@ export default function DashboardLoading() {
 
           <p className={styles.navLabel}>YOUR DAILY SPACE</p>
 
-          <nav aria-label="Dashboard navigation skeleton" className="sidebar-nav">
+          <nav aria-label="Dashboard navigation" className="sidebar-nav">
             <div className="nav-item active" style={{ cursor: "default" }}>
               <LayoutDashboard size={18} />
               <span>Overview</span>
@@ -123,10 +309,6 @@ export default function DashboardLoading() {
             <div className="nav-item" style={{ cursor: "default" }}>
               <Inbox size={18} />
               <span>Messages</span>
-              <span
-                className="sk-pulse"
-                style={{ width: "22px", height: "14px", borderRadius: "4px", marginLeft: "auto", display: "inline-block" }}
-              />
             </div>
             <div className="nav-item" style={{ cursor: "default" }}>
               <Mail size={18} />
@@ -165,297 +347,40 @@ export default function DashboardLoading() {
 
           <div className="sidebar-footer">
             <div className="sidebar-legal">
-              <span className="sidebar-legal-link">Privacy</span>
+              <Link href="/privacy" className="sidebar-legal-link">Privacy</Link>
               <span className="sidebar-legal-dot">•</span>
-              <span className="sidebar-legal-link">Terms</span>
+              <Link href="/terms" className="sidebar-legal-link">Terms</Link>
             </div>
             <div className="sidebar-user-row">
               <span
-                className="sidebar-user-avatar sk-pulse"
-                style={{ width: "30px", height: "30px", borderRadius: "50%", display: "inline-block" }}
-              />
-              <div className="sidebar-user-info" style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <span className="sk-pulse" style={{ width: "65px", height: "10px", borderRadius: "3px", display: "block" }} />
-                <span className="sk-pulse" style={{ width: "95px", height: "8px", borderRadius: "3px", display: "block" }} />
+                className="sidebar-user-avatar"
+                style={{ width: "30px", height: "30px", borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--avatar-surface, #e6ebd8)", color: "var(--avatar-ink, #576d40)", fontSize: "11px", fontWeight: 650 }}
+              >
+                ST
+              </span>
+              <div className="sidebar-user-info">
+                <span className="sidebar-user-name">Workspace</span>
+                <span className="sidebar-user-email">Syncing updates…</span>
+              </div>
+              <div className="sidebar-signout-btn" style={{ opacity: 0.5, cursor: "default" }} title="Sign out">
+                <LogOut size={15} />
               </div>
             </div>
           </div>
         </aside>
 
-        {/* Main Content Area */}
-        <main className="dashboard-main">
-          <section className="dashboard-content">
-            <div className={overviewStyles.overview}>
-              {/* Title & Toolbar Row */}
-              <div className={overviewStyles.titleRow}>
-                <div>
-                  <p className={overviewStyles.eyebrow}>
-                    <span className={overviewStyles.liveDot} /> YOUR COMMAND CENTER
-                  </p>
-                  <h1>
-                    Dashboard <span>Overview.</span>
-                  </h1>
-                  <p className={overviewStyles.subtitle}>
-                    Your inbox intelligence stream across all connected accounts.
-                  </p>
-                </div>
-                <div className={overviewStyles.toolbar}>
-                  <div className={overviewStyles.periodButton} style={{ opacity: 0.85, cursor: "default" }}>
-                    <CalendarDays size={15} />
-                    <span>7 Days</span>
-                    <ChevronDown size={13} />
-                  </div>
-                  <div className={overviewStyles.primaryButton} style={{ opacity: 0.85, cursor: "default" }}>
-                    <Plus size={16} />
-                    <span>Connect Gmail</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 4 Metric Cards */}
-              <section aria-label="Email metrics" className={overviewStyles.metrics}>
-                {/* Metric 1 */}
-                <article className={overviewStyles.metric}>
-                  <div className={overviewStyles.metricTop}>
-                    <span className={overviewStyles.metricIcon}>
-                      <Mail size={17} />
-                    </span>
-                    <span>Received Today</span>
-                    <span className={overviewStyles.metricTrend}>
-                      <i />
-                      Activity
-                    </span>
-                  </div>
-                  <div className={overviewStyles.metricValueRow}>
-                    <span className="sk-pulse" style={{ width: "52px", height: "32px", borderRadius: "6px", display: "inline-block" }} />
-                    <span className={overviewStyles.metricBadge}>Today</span>
-                  </div>
-                  <span className="sk-pulse" style={{ width: "130px", height: "12px", borderRadius: "4px", display: "inline-block", marginTop: "4px" }} />
-                </article>
-
-                {/* Metric 2: Priority Signal */}
-                <article className={`${overviewStyles.metric} ${overviewStyles.priorityMetric}`}>
-                  <div className={overviewStyles.metricTop}>
-                    <span className={overviewStyles.metricIcon}>
-                      <Sparkles size={17} />
-                    </span>
-                    <span>Important Signals</span>
-                    <span className={overviewStyles.metricTrend}>
-                      <i />
-                      Priority
-                    </span>
-                  </div>
-                  <div className={overviewStyles.metricValueRow}>
-                    <span className="sk-pulse" style={{ width: "46px", height: "32px", borderRadius: "6px", display: "inline-block" }} />
-                    <span className={overviewStyles.metricBadge}>Filtered</span>
-                  </div>
-                  <span className="sk-pulse" style={{ width: "140px", height: "12px", borderRadius: "4px", display: "inline-block", marginTop: "4px" }} />
-                </article>
-
-                {/* Metric 3 */}
-                <article className={overviewStyles.metric}>
-                  <div className={overviewStyles.metricTop}>
-                    <span className={overviewStyles.metricIcon}>
-                      <Zap size={17} />
-                    </span>
-                    <span>WhatsApp Stream</span>
-                    <span className={overviewStyles.metricTrend}>
-                      <i />
-                      Sync
-                    </span>
-                  </div>
-                  <div className={overviewStyles.metricValueRow}>
-                    <span className="sk-pulse" style={{ width: "58px", height: "32px", borderRadius: "6px", display: "inline-block" }} />
-                    <span className={overviewStyles.metricBadge}>Meta API</span>
-                  </div>
-                  <span className="sk-pulse" style={{ width: "125px", height: "12px", borderRadius: "4px", display: "inline-block", marginTop: "4px" }} />
-                </article>
-
-                {/* Metric 4 */}
-                <article className={overviewStyles.metric}>
-                  <div className={overviewStyles.metricTop}>
-                    <span className={overviewStyles.metricIcon}>
-                      <TriangleAlert size={17} />
-                    </span>
-                    <span>Needs Attention</span>
-                    <span className={overviewStyles.metricTrend}>
-                      <i />
-                      Healthy
-                    </span>
-                  </div>
-                  <div className={overviewStyles.metricValueRow}>
-                    <span className="sk-pulse" style={{ width: "38px", height: "32px", borderRadius: "6px", display: "inline-block" }} />
-                    <span className={overviewStyles.metricBadge}>Clean</span>
-                  </div>
-                  <span className="sk-pulse" style={{ width: "115px", height: "12px", borderRadius: "4px", display: "inline-block", marginTop: "4px" }} />
-                </article>
-              </section>
-
-              {/* Inbox Workspace 2-Column Skeleton */}
-              <div className={inboxStyles.workspace}>
-                <div className={inboxStyles.workspaceHeading}>
-                  <div>
-                    <span className={inboxStyles.eyebrow}>INBOX WORKSPACE</span>
-                    <h2>Triage. Summary. Delivery.</h2>
-                  </div>
-                  <span className={inboxStyles.totalCount}>Loading inbox stream…</span>
-                </div>
-
-                <div className={inboxStyles.columns}>
-                  {/* Left Column: Stream */}
-                  <div className={inboxStyles.inbox}>
-                    <div className={inboxStyles.listHeading}>
-                      <strong>Signal stream</strong>
-                      <span>Recent</span>
-                    </div>
-
-                    <div className={inboxStyles.filters}>
-                      <div className="sk-pulse" style={{ width: "45px", height: "26px", borderRadius: "5px" }} />
-                      <div className="sk-pulse" style={{ width: "65px", height: "26px", borderRadius: "5px" }} />
-                      <div className="sk-pulse" style={{ width: "75px", height: "26px", borderRadius: "5px" }} />
-                    </div>
-
-                    <div className={inboxStyles.search}>
-                      <Search size={14} style={{ opacity: 0.5 }} />
-                      <span className="sk-pulse" style={{ width: "120px", height: "12px", borderRadius: "3px" }} />
-                    </div>
-
-                    <div className={inboxStyles.messageList}>
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={inboxStyles.message}
-                          style={{ cursor: "default" }}
-                        >
-                          <div
-                            className={`sk-pulse ${inboxStyles.avatar}`}
-                            style={{ width: "30px", height: "30px", borderRadius: "5px", flexShrink: 0 }}
-                          />
-                          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
-                            <div className={inboxStyles.messageTop}>
-                              <span className="sk-pulse" style={{ width: "110px", height: "12px", borderRadius: "3px", display: "inline-block" }} />
-                              <span className="sk-pulse" style={{ width: "35px", height: "10px", borderRadius: "3px", display: "inline-block" }} />
-                            </div>
-                            <span className="sk-pulse" style={{ width: `${75 + (i % 2) * 15}%`, height: "13px", borderRadius: "3px", display: "inline-block" }} />
-                            <span className="sk-pulse" style={{ width: `${50 + (i % 3) * 15}%`, height: "10px", borderRadius: "3px", display: "inline-block" }} />
-                            <div className={inboxStyles.messageBottom}>
-                              <div style={{ display: "flex", gap: "6px" }}>
-                                <span className="sk-pulse" style={{ width: "48px", height: "16px", borderRadius: "3px", display: "inline-block" }} />
-                                <span className="sk-pulse" style={{ width: "36px", height: "16px", borderRadius: "3px", display: "inline-block" }} />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Right Column: Brief Preview */}
-                  <div className={inboxStyles.contextColumn}>
-                    <div className={inboxStyles.reader}>
-                      <div className={inboxStyles.readerHeading}>
-                        <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 550, color: "var(--muted)" }}>
-                          <Sparkles size={14} style={{ color: "var(--brand-plum)" }} />
-                          Executive Briefing Preview
-                        </span>
-                        <span className="sk-pulse" style={{ width: "60px", height: "18px", borderRadius: "10px" }} />
-                      </div>
-
-                      <div style={{ padding: "24px 26px", display: "flex", flexDirection: "column", gap: "20px" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                          <span className="sk-pulse" style={{ width: "70%", height: "16px", borderRadius: "4px" }} />
-                          <span className="sk-pulse" style={{ width: "40%", height: "12px", borderRadius: "4px" }} />
-                        </div>
-
-                        <div
-                          style={{
-                            padding: "16px",
-                            borderRadius: "8px",
-                            border: "1px solid var(--line-subtle)",
-                            background: "var(--surface-muted)",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "8px",
-                          }}
-                        >
-                          <span className="sk-pulse" style={{ width: "95%", height: "12px", borderRadius: "3px" }} />
-                          <span className="sk-pulse" style={{ width: "88%", height: "12px", borderRadius: "3px" }} />
-                          <span className="sk-pulse" style={{ width: "60%", height: "12px", borderRadius: "3px" }} />
-                        </div>
-
-                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                          <span className="sk-pulse" style={{ width: "100px", height: "11px", borderRadius: "3px" }} />
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <span className="sk-pulse" style={{ width: "16px", height: "16px", borderRadius: "4px", flexShrink: 0 }} />
-                            <span className="sk-pulse" style={{ width: "80%", height: "12px", borderRadius: "3px" }} />
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <span className="sk-pulse" style={{ width: "16px", height: "16px", borderRadius: "4px", flexShrink: 0 }} />
-                            <span className="sk-pulse" style={{ width: "65%", height: "12px", borderRadius: "3px" }} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Operations Section */}
-              <div className={overviewStyles.operationsHeading}>
-                <span className={overviewStyles.eyebrow}>BEHIND YOUR BRIEF</span>
-                <span>Connected. Processing. Delivering.</span>
-              </div>
-              <section className={overviewStyles.operationsGrid}>
-                {/* Health Panel */}
-                <article className={`${overviewStyles.panel} ${overviewStyles.healthPanel}`}>
-                  <div className={overviewStyles.panelHeader}>
-                    <div>
-                      <p className={overviewStyles.eyebrow}>PROCESSING HEALTH</p>
-                      <h2>Pipeline Active & Clear</h2>
-                    </div>
-                    <span className={overviewStyles.healthBadge}>
-                      <i className={overviewStyles.liveDot} />
-                      99.9% Uptime
-                    </span>
-                  </div>
-                  <div className={overviewStyles.healthVisual}>
-                    <div className={overviewStyles.healthGrid} aria-hidden="true" />
-                    <span className={overviewStyles.flowEndpoint}>
-                      <Mail size={17} />
-                      <span>INBOX</span>
-                    </span>
-                    <div className={overviewStyles.latency}>
-                      <span className="sk-pulse" style={{ width: "36px", height: "18px", borderRadius: "4px" }} />
-                      <span>AVG. LATENCY</span>
-                    </div>
-                    <span className={overviewStyles.flowEndpoint}>
-                      <Zap size={17} />
-                      <span>DELIVERY</span>
-                    </span>
-                  </div>
-                </article>
-
-                {/* Telemetry / Integration Panel */}
-                <article className={overviewStyles.panel}>
-                  <div className={overviewStyles.panelHeader}>
-                    <div>
-                      <p className={overviewStyles.eyebrow}>TELEMETRY & STATUS</p>
-                      <h2>System Ingestion Ready</h2>
-                    </div>
-                    <span className={overviewStyles.healthBadge}>
-                      <i className={overviewStyles.liveDot} />
-                      Standby
-                    </span>
-                  </div>
-                  <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px" }}>
-                    <div className="sk-pulse" style={{ width: "100%", height: "38px", borderRadius: "6px" }} />
-                    <div className="sk-pulse" style={{ width: "100%", height: "38px", borderRadius: "6px" }} />
-                    <div className="sk-pulse" style={{ width: "70%", height: "38px", borderRadius: "6px" }} />
-                  </div>
-                </article>
-              </section>
-            </div>
-          </section>
+        {/* Spacious Main Canvas hosting exclusively the kinetic Strike brand loader */}
+        <main
+          className="dashboard-main"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "calc(100vh - 60px)",
+            width: "100%",
+          }}
+        >
+          <StrikeBrandLoader />
         </main>
       </div>
     </div>

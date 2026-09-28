@@ -286,8 +286,8 @@ export function AccountsTab({ accounts, email, onConnectGmail }: AccountsTabProp
       {/* Styled Personalized Confirmation Modal */}
       {accountToDisconnect && (
         <ConfirmModal
-          cancelLabel="Keep Connected"
-          confirmLabel="Disconnect Account"
+          cancelLabel="No"
+          confirmLabel="Yes"
           description={`Are you sure you want to disconnect ${accountToDisconnect.email}? Strike will stop receiving push updates and syncing emails from this mailbox.`}
           isDestructive={true}
           isLoading={Boolean(disconnectingId)}

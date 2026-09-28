@@ -1,7 +1,8 @@
 import { getPipelineControls } from "@/common/pipeline-controls";
 import { saveUserSettings } from "@/database/user-settings";
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { decodeHtmlEntities } from '@/modules/email/ingestion/email-content';
+import { sendGreetings24hTemplate } from './templates';
 
 /**
  * WhatsApp Cloud Functions (2nd Gen) Client for Strike.
@@ -322,4 +323,57 @@ export async function flushStackedEmailAlerts(
   await supabase.from('delivery_outbox').update({status:'pending',error_code:null,error_message:null})
     .eq('user_id',userId).eq('status','failed').eq('error_code','131047').throwOnError();
   return { flushedCount: 0, messagesDelivered: [] };
+}
+
+/**
+ * Checks all users for 24-hour windows that are about to expire (within 1 hour)
+ * and sends the GREETINGS_24H_WINDOW template to prompt a reply and reset the window.
+ */
+export async function checkAndRenew24hWindows(db: SupabaseClient): Promise<{ processed: number; sent: number }> {
+  // Find users with an OPEN window expiring in less than 1 hour (but not already expired)
+  const now = new Date();
+  const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+  const { data: users, error } = await db
+    .from('user_settings')
+    .select('user_id, whatsapp_destination, notification_preferences')
+    .not('whatsapp_destination', 'is', null);
+
+  if (error || !users) return { processed: 0, sent: 0 };
+
+  let sent = 0;
+  for (const user of users) {
+    const prefs = (user.notification_preferences as Record<string, unknown>) || {};
+    if (!prefs.window_expires_at || prefs.window_status !== 'OPEN') continue;
+
+    const expiresAt = new Date(prefs.window_expires_at as string);
+    // If it expires within the next 1 hour, and we haven't already marked it as PROMPTED
+    if (expiresAt > now && expiresAt <= oneHourFromNow) {
+      try {
+        await sendGreetings24hTemplate(user.whatsapp_destination, "there");
+        
+        // Mark as prompted so we don't spam them every minute for the last hour
+        await db.from('user_settings').update({
+          notification_preferences: {
+            ...prefs,
+            window_status: 'PROMPTED'
+          }
+        }).eq('user_id', user.user_id);
+        
+        sent++;
+      } catch (err) {
+        console.error(`Failed to send 24h renewal template to ${user.user_id}:`, err);
+      }
+    } else if (expiresAt <= now && prefs.window_status !== 'CLOSED') {
+      // It has fully expired, mark as closed
+      await db.from('user_settings').update({
+        notification_preferences: {
+          ...prefs,
+          window_status: 'CLOSED'
+        }
+      }).eq('user_id', user.user_id);
+    }
+  }
+
+  return { processed: users.length, sent };
 }
