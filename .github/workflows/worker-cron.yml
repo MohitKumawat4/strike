@@ -12,5 +12,5 @@ jobs:
     steps:
       - name: Ping Vercel Worker Endpoint
         run: |
-          curl -X GET "https://strike-taupe.vercel.app/api/cron/worker" \
+          curl -X GET "https://strike-lac.vercel.app/api/cron/worker" \
                -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
