@@ -1,0 +1,16 @@
+name: Pipeline Worker Cron
+
+on:
+  schedule:
+    # Runs every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual triggering from the GitHub Actions UI
+
+jobs:
+  ping-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Vercel Worker Endpoint
+        run: |
+          curl -X GET "https://strike-taupe.vercel.app/api/cron/worker" \
+               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

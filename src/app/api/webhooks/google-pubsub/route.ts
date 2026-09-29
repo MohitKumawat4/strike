@@ -34,7 +34,7 @@ export async function POST(request: Request) {
                     // Drain the queued sync page to fetch newest Gmail messages into database
                     await runMailboxSyncPage(db);
                     // Run AI triage and summarization batch for pending messages
-                    await runProcessingBatch(db, 5, 1);
+                    await runProcessingBatch(db, 15, 2);
                     // Deliver any pending important alerts to WhatsApp outbox
                     await runDeliveryOutbox(db);
                 } catch (err) {
