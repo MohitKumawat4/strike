@@ -176,11 +176,11 @@ export async function POST(request: NextRequest) {
 
             // Detect if this is an activation button tap or greeting re-engagement
             const isActivationOrBriefing =
+              msg.type === 'text' ||
               buttonPayload === 'ACTIVATE_STREAM' ||
               buttonPayload === 'START_DAY' ||
               buttonPayload === 'VIEW_INBOX' ||
-              buttonPayload === 'test_ack' ||
-              /^(hi|hello|hey|start|activate|stream|briefing|inbox)/i.test((inboundText || '').trim());
+              buttonPayload === 'test_ack';
 
             if (isActivationOrBriefing) {
               try {

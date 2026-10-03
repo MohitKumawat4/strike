@@ -50,7 +50,7 @@ export interface OutboundLogContext {
 }
 
 export class WhatsAppHttpError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public metaCode?: string) { super(message); }
 }
 
 /**
@@ -97,18 +97,28 @@ export async function sendWhatsAppMessage(
 
   if (!response.ok) {
     const errorText = await response.text();
+    let metaCode: string | undefined = undefined;
+    try {
+      const parsed = JSON.parse(errorText);
+      if (parsed.error?.code) {
+        metaCode = String(parsed.error.code);
+      } else if (parsed.code) {
+        metaCode = String(parsed.code);
+      }
+    } catch (e) {}
+
     console.error('❌ Cloud Function WhatsApp Send Error:', response.status, errorText);
     const { logLayerError } = await import("@/common/logging/layer-logger");
     await logLayerError({
       layer: "delivery",
       severity: "error",
-      errorCode: `WHATSAPP_HTTP_${response.status}`,
+      errorCode: metaCode ? `WHATSAPP_HTTP_${metaCode}` : `WHATSAPP_HTTP_${response.status}`,
       errorMessage: `WhatsApp Cloud Function failed (${response.status}): ${errorText}`,
       userId: logCtx?.user_id,
       messageId: logCtx?.extra?.message_id as string | undefined,
       technicalDetails: { operation: "send", status: response.status },
     });
-    throw new WhatsAppHttpError(response.status, `WhatsApp request failed (${response.status})`);
+    throw new WhatsAppHttpError(response.status, `WhatsApp request failed (${response.status})`, metaCode);
   }
 
   const result = await response.json();
@@ -152,17 +162,27 @@ export async function sendWhatsAppTemplate(
 
   if (!response.ok) {
     const errorText = await response.text();
+    let metaCode: string | undefined = undefined;
+    try {
+      const parsed = JSON.parse(errorText);
+      if (parsed.error?.code) {
+        metaCode = String(parsed.error.code);
+      } else if (parsed.code) {
+        metaCode = String(parsed.code);
+      }
+    } catch (e) {}
+
     console.error('❌ Cloud Function WhatsApp Template Error:', response.status, errorText);
     const { logLayerError } = await import("@/common/logging/layer-logger");
     await logLayerError({
       layer: "delivery",
       severity: "error",
-      errorCode: `WHATSAPP_TEMPLATE_HTTP_${response.status}`,
+      errorCode: metaCode ? `WHATSAPP_TEMPLATE_HTTP_${metaCode}` : `WHATSAPP_TEMPLATE_HTTP_${response.status}`,
       errorMessage: `WhatsApp Template dispatch failed (${response.status}): ${errorText}`,
       userId: logCtx?.user_id,
       technicalDetails: { templateName, status: response.status, recipient: cleanPhone },
     });
-    throw new Error(`Cloud Function WhatsApp Template Error (${response.status}): ${errorText}`);
+    throw new WhatsAppHttpError(response.status, `Cloud Function WhatsApp Template Error (${response.status}): ${errorText}`, metaCode);
   }
 
   const result = await response.json();
@@ -212,6 +232,7 @@ export interface StrikeEmailAlertParams {
   actionItems?: Array<{ action: string; deadline?: string; assignee?: string }>;
   emailMessageId: string;
   userId?: string;
+  isWindowClosed?: boolean;
 }
 
 export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
@@ -223,6 +244,31 @@ export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
   const cleanSubject = decodeHtmlEntities(params.subject || '(No Subject)');
   let cleanSummary = decodeHtmlEntities(params.summaryText || '');
   cleanSummary = cleanSummary.replace(/^(Executive\s+summary|Summary|Brief):\s*/i, '').trim();
+
+  // If the 24-hour user messaging window is closed, free-form text messages will fail (Meta Error 131047).
+  // We must fallback to using an approved WhatsApp template to deliver the notification.
+  if (params.isWindowClosed) {
+    const { formatTemplateComponents, WHATSAPP_TEMPLATES } = await import('./templates');
+    const template = WHATSAPP_TEMPLATES.URGENT_EMAIL_ALERT;
+    
+    // URGENT_EMAIL_ALERT requires exactly 3 variables: sender, subject, summary
+    const components = formatTemplateComponents(template, [
+      (cleanSender || 'Unknown').substring(0, 50),
+      cleanSubject.substring(0, 50),
+      cleanSummary.substring(0, 150) // Truncate to avoid template character limits
+    ]);
+    
+    return sendWhatsAppTemplate(
+      params.recipientPhone,
+      template.name,
+      template.language,
+      components,
+      {
+        user_id: params.userId,
+        extra: { message_id: params.emailMessageId },
+      }
+    );
+  }
 
   const bodyLines: string[] = [
     `${headerBadge}`,

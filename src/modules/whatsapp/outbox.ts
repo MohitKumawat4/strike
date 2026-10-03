@@ -49,8 +49,13 @@ export async function runDeliveryOutbox(db: SupabaseClient, userId?: string, max
                 skipped++;
                 continue;
             }
+        const isWindowClosed = !prefs.window_status || prefs.window_status === 'CLOSED' || (prefs.window_expires_at && Date.now() > Date.parse(prefs.window_expires_at));
+        
         attempted = true;
-        const result = await sendStrikeEmailAlert(item.payload as StrikeEmailAlertParams);
+        const payload = item.payload as StrikeEmailAlertParams;
+        payload.isWindowClosed = isWindowClosed;
+        
+        const result = await sendStrikeEmailAlert(payload);
         provider = providerMessageId(result);
         if (!provider)
             throw new Error("PROVIDER_ACCEPTANCE_ID_MISSING");
@@ -63,7 +68,13 @@ export async function runDeliveryOutbox(db: SupabaseClient, userId?: string, max
         const message = error instanceof Error ? error.message : String(error);
         const rejected = error instanceof WhatsAppHttpError && error.status >= 400 && error.status < 500;
         const paused = message === "WHATSAPP_PAUSED";
-        await db.from("delivery_outbox").update({ status: paused ? "skipped" : !attempted ? "pending" : rejected ? "failed" : "unknown", error_code: paused ? "WHATSAPP_PAUSED" : rejected ? "PROVIDER_REJECTED" : "SEND_OUTCOME_UNKNOWN", error_message: message, ...(provider ? { provider_message_id: provider } : {}), lease_owner: null, lease_expires_at: null }).eq("id", item.id).eq("lease_owner", owner).throwOnError();
+        
+        let errorCodeStr = paused ? "WHATSAPP_PAUSED" : rejected ? "PROVIDER_REJECTED" : "SEND_OUTCOME_UNKNOWN";
+        if (error instanceof WhatsAppHttpError && error.metaCode) {
+            errorCodeStr = error.metaCode;
+        }
+
+        await db.from("delivery_outbox").update({ status: paused ? "skipped" : !attempted ? "pending" : rejected ? "failed" : "unknown", error_code: errorCodeStr, error_message: message, ...(provider ? { provider_message_id: provider } : {}), lease_owner: null, lease_expires_at: null }).eq("id", item.id).eq("lease_owner", owner).throwOnError();
         
         // Ensure failed WhatsApp deliveries are actually logged to the dedicated error logs page
         if (rejected || (!paused && attempted)) {
@@ -79,7 +90,7 @@ export async function runDeliveryOutbox(db: SupabaseClient, userId?: string, max
         }
         
         failed++;
-        // Continue processing other items even if one fails
+    }
     }
 
     return { processed, accepted, skipped, failed };
