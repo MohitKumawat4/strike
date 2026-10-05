@@ -29,7 +29,7 @@ export async function POST(request: Request) {
                 // Ingest latest messages from Gmail
                 await runMailboxSyncPage(admin, user.id);
                 // Run AI classification/triage batch
-                await runProcessingBatch(admin, 5, 1, user.id);
+                await runProcessingBatch(admin, 10, 3, user.id);
                 // Send any pending WhatsApp messages
                 await runDeliveryOutbox(admin, user.id);
             } catch (err) {
