@@ -11,7 +11,8 @@ export type DashboardFeatureId =
   | "overview"
   | "processing"
   | "error_logs"
-  | "pipeline_controls";
+  | "pipeline_controls"
+  | "whatsapp_preview";
 
 export interface DashboardFeature {
   id: DashboardFeatureId;
@@ -48,6 +49,12 @@ export const FEATURE_REGISTRY: Record<DashboardFeatureId, DashboardFeature> = {
     enabled: true,
     name: "Pipeline Controls",
     description: "User toggles for AI and delivery subsystems.",
+  },
+  whatsapp_preview: {
+    id: "whatsapp_preview",
+    enabled: true,
+    name: "WhatsApp Stream Preview",
+    description: "Direct simulation of the WhatsApp chat interface.",
   },
 };
 

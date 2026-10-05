@@ -35,6 +35,7 @@ import {
   Sun,
   Tag,
   X,
+  MessageCircle,
 } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/database/supabase/browser";
@@ -44,6 +45,7 @@ import { isFeatureEnabled, type DashboardFeatureId } from "@/modules/dashboard/f
 
 /* Tab components */
 import { OverviewTab } from "./tabs/overview-tab";
+import { WhatsAppPreviewTab } from "./whatsapp-preview-tab";
 import { MessagesTab } from "./tabs/messages-tab";
 import { AccountsTab } from "./tabs/accounts-tab";
 import { ProcessingTab } from "./tabs/processing-tab";
@@ -126,7 +128,7 @@ export type UserSettings = {
 };
 
 /* Tab key type for the sidebar navigation */
-type TabKey = "overview" | "messages" | "accounts" | "processing" | "analytics" | "templates" | "settings" | "error_logs";
+type TabKey = "overview" | "messages" | "accounts" | "processing" | "analytics" | "templates" | "settings" | "error_logs" | "whatsapp_preview" | "pipeline_controls";
 
 /* Sidebar navigation definition — used on desktop sidebar and mobile hamburger drawer */
 const ALL_NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: boolean }[] = [
@@ -135,6 +137,7 @@ const ALL_NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: b
   { key: "accounts", label: "Accounts", icon: Mail },
   { key: "processing", label: "Processing", icon: ShieldCheck },
   { key: "analytics", label: "Analytics", icon: BarChart2 },
+  { key: "whatsapp_preview", label: "WhatsApp Stream", icon: MessageCircle },
   { key: "templates", label: "Templates", icon: FileText },
   { key: "error_logs", label: "Error Logs", icon: ShieldAlert },
   { key: "settings", label: "Settings", icon: Settings2 },
@@ -142,7 +145,7 @@ const ALL_NAV_ITEMS: { key: TabKey; label: string; icon: typeof Inbox; count?: b
 
 const NAV_ITEMS = ALL_NAV_ITEMS.filter((item) => {
   // If the nav item is registered as a toggleable feature, check its status
-  if (["overview", "processing", "error_logs"].includes(item.key)) {
+  if (["overview", "processing", "error_logs", "pipeline_controls", "whatsapp_preview"].includes(item.key)) {
     return isFeatureEnabled(item.key as DashboardFeatureId);
   }
   return true;
@@ -961,6 +964,8 @@ export function DashboardShell({
             onUpdateUserSettings={(updates) => setCurrentUserSettings((previous) => ({ ...previous, ...updates }))}
           />
         );
+      case "whatsapp_preview":
+        return <WhatsAppPreviewTab />;
       default:
         return null;
     }
