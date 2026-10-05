@@ -233,6 +233,7 @@ export interface StrikeEmailAlertParams {
   emailMessageId: string;
   userId?: string;
   isWindowClosed?: boolean;
+  gmailLabels?: string[];
 }
 
 export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
@@ -276,6 +277,7 @@ export async function sendStrikeEmailAlert(params: StrikeEmailAlertParams) {
     cleanSender ? `👤 *From:* ${cleanSender}` : '',
     `📌 *Subject:* ${cleanSubject}`,
     params.category ? `🏷️ *Category:* ${params.category.toUpperCase()}` : '',
+    params.gmailLabels && params.gmailLabels.length > 0 ? `🗂️ *Labels:* ${params.gmailLabels.join(', ')}` : '',
     '',
     '📝 *Summary:*',
     cleanSummary,

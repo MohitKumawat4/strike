@@ -112,6 +112,7 @@ export class DeliveryCheckpoint implements IPipelineCheckpoint {
             : (items as Record<string, unknown>)?.action_items || [],
           emailMessageId: message.id,
           userId: message.user_id,
+          gmailLabels: message.labels,
         },
       },
     };
