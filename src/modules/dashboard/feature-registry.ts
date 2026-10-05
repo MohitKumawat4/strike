@@ -39,7 +39,7 @@ export const FEATURE_REGISTRY: Record<DashboardFeatureId, DashboardFeature> = {
   },
   error_logs: {
     id: "error_logs",
-    enabled: false,
+    enabled: true,
     name: "Error Logs",
     description: "Administrative telemetry and debugging (PIN protected).",
   },
