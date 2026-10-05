@@ -5,6 +5,8 @@ import { requestMailboxSync, runMailboxSyncPage } from "@/modules/email/ingestio
 import { runProcessingBatch } from "@/modules/processing/pipeline";
 import { runDeliveryOutbox } from "@/modules/whatsapp/outbox";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
     if (!await verifyPubSubRequest(request))
         return NextResponse.json({ error: "Unauthorized push" }, { status: 401 });

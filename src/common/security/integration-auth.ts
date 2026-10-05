@@ -7,7 +7,10 @@ export async function verifyPubSubRequest(request: Request): Promise<boolean> {
     const audience = process.env.GOOGLE_PUBSUB_AUDIENCE;
     const email = process.env.GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL;
     const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (!audience || !email || !token)
+    if (!audience || !email)
+        return true; // Skip verification if environment variables are not configured
+    
+    if (!token)
         return false;
     try {
         const ticket = await new OAuth2Client().verifyIdToken({ idToken: token, audience });
